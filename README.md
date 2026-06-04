@@ -1,36 +1,79 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SIRIS (Smart Interactive RFID System)
 
-## Getting Started
+![SIRIS Banner](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
+![Next.js](https://img.shields.io/badge/Next.js-14-black?style=for-the-badge&logo=next.js)
+![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
+![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)
 
-First, run the development server:
+**SIRIS** adalah antarmuka web interaktif berbasis Next.js yang terhubung langsung dengan perangkat keras RFID Scanner. Sistem ini dirancang untuk menyajikan informasi dan konten media secara *real-time* kepada civitas akademika (Dosen, Mahasiswa, dan Tamu) setiap kali mereka melakukan *tap* (pemindaian) kartu di area laboratorium.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## ✨ Fitur Utama
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- **Integrasi Hardware Real-Time**: Menggunakan jalur koneksi *Server-Sent Events* (SSE) dan library `serialport` untuk mendeteksi *tap* kartu dari *scanner* fisik seketika tanpa perlu memuat ulang (*refresh*) halaman.
+- **Tampilan Berbasis Role**: 
+  - 👨‍🏫 **Dosen**: Menampilkan NIP, profil, dan materi pembelajaran spesifik.
+  - 👨‍🎓 **Mahasiswa**: Menampilkan NRP, jurusan, dan notifikasi Dosen yang sedang berada di lab.
+  - 🧳 **Tamu**: Menampilkan asal instansi dan video pengenalan profil lab/kampus.
+- **Admin Panel (CMS)**: Halaman khusus bagi admin untuk membuat/menghapus "Mata Kuliah", menambah "Pertemuan", dan mengunggah (*upload*) materi video perkuliahan langsung dari komputer.
+- **Cloud Storage & Database**: Menggunakan **Firebase** (Storage & Firestore) untuk mengamankan dan menyajikan file video materi secara efisien dengan kapasitas hingga 5 GB gratis.
+- **Simulator Hardware**: Dilengkapi dengan halaman `/simulator` yang berfungsi mengirimkan perintah *scan* kartu buatan untuk memudahkan pengujian aplikasi tanpa menyambungkan perangkat keras sungguhan.
+- **Auto-Clear Session**: Tampilan otomatis kembali ke kondisi siap sedia (kosong) setelah 30 detik *tap* kartu terakhir agar tampilan lab tetap terlihat rapi dan bersih (*clean look*).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🛠️ Tech Stack
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **Framework**: [Next.js 14](https://nextjs.org/) (App Router)
+- **Language**: [TypeScript](https://www.typescriptlang.org/)
+- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
+- **Database & Storage**: [Firebase](https://firebase.google.com/) (Firestore & Cloud Storage)
+- **Hardware Comms**: Node.js `serialport` & Web API `EventSource`
 
-## Learn More
+## 🚀 Panduan Instalasi (Local Development)
 
-To learn more about Next.js, take a look at the following resources:
+### Prasyarat
+- Node.js versi 18 atau lebih baru.
+- Akun Firebase aktif.
+- Perangkat RFID Scanner yang mendukung *Serial Port/COM* (opsional, dapat digantikan dengan Simulator).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Langkah-langkah
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. **Clone repositori**
+   ```bash
+   git clone https://github.com/nizarae26/siris.git
+   cd siris
+   ```
 
-## Deploy on Vercel
+2. **Instal seluruh *dependencies***
+   ```bash
+   npm install
+   ```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+3. **Konfigurasi Firebase (Environment Variables)**
+   Buat file bernama `.env.local` di *root* proyek Anda (folder paling luar) dan masukkan kunci dari Firebase Anda:
+   ```env
+   NEXT_PUBLIC_FIREBASE_API_KEY=KODE_API_ANDA
+   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=proyek.firebaseapp.com
+   NEXT_PUBLIC_FIREBASE_PROJECT_ID=proyek-anda
+   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=proyek.appspot.com
+   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=123456
+   NEXT_PUBLIC_FIREBASE_APP_ID=1:123:web:abc
+   ```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+4. **Jalankan Server Pengembangan**
+   ```bash
+   npm run dev
+   ```
+
+5. **Akses Aplikasi**
+   - Buka `http://localhost:3000` di *browser* untuk melihat **Dashboard Utama**.
+   - Buka `http://localhost:3000/simulator` untuk menyimulasikan tap RFID.
+   - Buka `http://localhost:3000/admin` untuk mengatur silabus mata kuliah dan mengunggah video.
+
+## 📡 Konfigurasi Perangkat Keras (Hardware)
+
+Jika Anda memiliki pembaca (*scanner*) RFID asli:
+1. Sambungkan alat pembaca tersebut ke *port* USB di PC/Raspberry Pi Anda.
+2. Cek nama *port* yang digunakan komputer Anda (contoh: `COM3` di Windows, atau `/dev/ttyUSB0` di Linux).
+3. Buka file `app/api/rfid/route.ts` dan ubah variabel pengaturan *serialport* (jika menggunakan logika yang *hardcoded*) ke jalur COM yang tepat.
+
+## 📝 Lisensi
+Dibuat untuk keperluan Proyek Praktikum / Akademik Komunikasi Data.
