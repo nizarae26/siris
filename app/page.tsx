@@ -8,6 +8,7 @@ export default function Dashboard() {
   const [activeUser, setActiveUser] = useState<User | null>(null);
   const [activeContent, setActiveContent] = useState<Content | null>(null);
   const [logs, setLogs] = useState<ScanLog[]>([]);
+
   useEffect(() => {
     // Connect to Server-Sent Events (SSE) for real-time hardware updates
     const eventSource = new EventSource('/api/rfid');
@@ -28,221 +29,276 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Auto-clear active session after 30 seconds of inactivity
+  // Auto-clear active session
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
     
     if (activeUser) {
-      timeoutId = setTimeout(() => {
-        setActiveUser(null);
-        setActiveContent(null);
-      }, 30000); // 30 seconds
+      const isYouTube = activeContent?.mediaUrl?.includes('youtube.com') || activeContent?.mediaUrl?.includes('youtu.be');
+      const noVideo = activeContent?.mediaType !== 'video' || !activeContent?.mediaUrl;
+      
+      if (noVideo || isYouTube) {
+        timeoutId = setTimeout(() => {
+          setActiveUser(null);
+          setActiveContent(null);
+        }, 60000); // 60 seconds fallback
+      }
     }
 
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [activeUser, logs]);
+  }, [activeUser, activeContent]);
 
-  const getBackgroundColor = (role?: Role) => {
+  const getGradient = (role?: Role) => {
     switch (role) {
       case 'Dosen':
-        return 'bg-blue-50'; // Soft blue
+        return 'from-blue-900 via-indigo-900 to-slate-900';
       case 'Mahasiswa':
-        return 'bg-emerald-50'; // Pastel emerald
+        return 'from-emerald-900 via-teal-900 to-slate-900';
       case 'Tamu':
-        return 'bg-orange-50'; // Warm orange
+        return 'from-orange-900 via-rose-900 to-slate-900';
       default:
-        return 'bg-gray-50'; // Default gray
+        return 'from-slate-900 via-gray-900 to-black';
+    }
+  };
+
+  const getAccentColor = (role?: Role) => {
+    switch (role) {
+      case 'Dosen': return 'bg-blue-500';
+      case 'Mahasiswa': return 'bg-emerald-500';
+      case 'Tamu': return 'bg-orange-500';
+      default: return 'bg-indigo-500';
     }
   };
 
   return (
-    <div className={`min-h-screen transition-colors duration-700 ease-in-out ${getBackgroundColor(activeUser?.role)} p-4 md:p-8 flex flex-col font-sans`}>
-      <header className="mb-8 mt-4 text-center relative">
-        <h1 className="text-3xl md:text-5xl font-extrabold text-gray-800 tracking-tight">- SIRIS -</h1>
-        <p className="text-gray-500 mt-2 font-medium text-lg">Smart Interactive RFID System</p>
-        <div className="absolute top-0 right-0 hidden md:flex items-center gap-3">
-          <a 
-            href="/admin" 
-            className="flex items-center gap-2 bg-white/80 backdrop-blur-sm border border-gray-200 px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 hover:text-indigo-600 hover:border-indigo-200 hover:shadow-sm transition-all"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            Admin Panel
-          </a>
+    <div className={`min-h-screen transition-all duration-1000 ease-in-out bg-gradient-to-br ${getGradient(activeUser?.role)} p-4 md:p-6 lg:p-8 flex flex-col font-sans relative overflow-hidden`}>
+      
+      {/* Decorative background blobs */}
+      <div className={`absolute top-[-10%] left-[-10%] w-[40vw] h-[40vw] rounded-full blur-[120px] opacity-20 pointer-events-none transition-colors duration-1000 ${getAccentColor(activeUser?.role)}`}></div>
+      <div className={`absolute bottom-[-10%] right-[-10%] w-[30vw] h-[30vw] rounded-full blur-[100px] opacity-20 pointer-events-none transition-colors duration-1000 ${getAccentColor(activeUser?.role)}`}></div>
+
+      {/* Floating Header */}
+      <header className="mb-8 w-full max-w-7xl mx-auto flex items-center justify-between bg-white/5 backdrop-blur-xl border border-white/10 px-6 py-4 rounded-3xl shadow-2xl z-10">
+        <div className="flex items-center gap-4">
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-black text-xl shadow-lg transition-colors duration-500 ${getAccentColor(activeUser?.role)}`}>
+            S
+          </div>
+          <div>
+            <h1 className="font-extrabold text-2xl text-white tracking-wider">SIRIS</h1>
+            <p className="text-xs font-medium text-gray-400 tracking-widest uppercase">Smart Interactive RFID</p>
+          </div>
+        </div>
+        <div className="hidden md:flex items-center gap-3">
           <a 
             href="/simulator" 
             target="_blank" 
             rel="noopener noreferrer"
-            className="flex items-center gap-2 bg-white/80 backdrop-blur-sm border border-gray-200 px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 hover:text-blue-600 hover:border-blue-200 hover:shadow-sm transition-all"
+            className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/10 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all shadow-lg backdrop-blur-md"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-            Open Simulator
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+            Simulator
+          </a>
+          <a 
+            href="/admin" 
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 border border-indigo-400/50 px-5 py-2.5 rounded-xl text-sm font-bold text-white shadow-lg shadow-indigo-500/30 transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+            Admin Panel
           </a>
         </div>
       </header>
 
-      <div className="flex-grow flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto w-full">
+      <div className="flex-grow flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto w-full z-10">
+        
         {/* Main Content Area */}
-        <div className="flex-grow flex flex-col gap-6">
-          <div className="bg-white/80 backdrop-blur-md shadow-xl border border-white rounded-3xl p-6 md:p-10 flex-grow relative overflow-hidden">
-            {/* Decorative background circle */}
-            <div className={`absolute -top-24 -right-24 w-64 h-64 rounded-full blur-3xl opacity-20 pointer-events-none transition-colors duration-700
-              ${activeUser?.role === 'Dosen' ? 'bg-blue-500' : activeUser?.role === 'Mahasiswa' ? 'bg-emerald-500' : activeUser?.role === 'Tamu' ? 'bg-orange-500' : 'bg-gray-400'}`}>
-            </div>
+        <div className="flex-grow flex flex-col gap-6 w-full lg:w-2/3">
+          
+          {activeUser && activeContent ? (
+            <div className="animate-fade-in-up flex flex-col gap-6 h-full">
+              
+              {/* Media Player Glass Card */}
+              <div className="bg-white/10 backdrop-blur-2xl border border-white/20 rounded-3xl p-2 shadow-2xl flex-grow flex flex-col">
+                <div className="px-6 py-4 flex items-center justify-between border-b border-white/10">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white tracking-tight">{activeContent.title}</h2>
+                    <p className="text-gray-300 text-sm mt-1">{activeContent.info}</p>
+                  </div>
+                  <span className="px-4 py-1.5 bg-white/10 border border-white/20 rounded-full text-xs font-bold text-white uppercase tracking-wider backdrop-blur-md">
+                    {activeUser.role} Portal
+                  </span>
+                </div>
+                
+                <div className="flex-grow p-4">
+                  {activeContent.mediaType === 'video' && activeContent.mediaUrl ? (
+                    <div className="w-full h-full min-h-[300px] lg:min-h-[400px] rounded-2xl overflow-hidden shadow-inner border border-white/10 bg-black/50 backdrop-blur-md">
+                      {activeContent.mediaUrl.includes('youtube.com') || activeContent.mediaUrl.includes('youtu.be') ? (
+                        <iframe 
+                          className="w-full h-full"
+                          src={`${activeContent.mediaUrl}${activeContent.mediaUrl.includes('?') ? '&' : '?'}autoplay=1`} 
+                          title="Video Player" 
+                          frameBorder="0" 
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                          allowFullScreen>
+                        </iframe>
+                      ) : (
+                        <video 
+                          className="w-full h-full object-cover"
+                          src={activeContent.mediaUrl}
+                          autoPlay
+                          controls
+                          onEnded={() => {
+                            setActiveUser(null);
+                            setActiveContent(null);
+                          }}
+                        ></video>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="w-full h-full min-h-[300px] flex items-center justify-center border-2 border-dashed border-white/20 rounded-2xl bg-white/5">
+                      <p className="text-white/50 font-medium">Tidak ada video materi yang tersedia.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-            {activeUser && activeContent ? (
-              <div className="animate-fade-in-up relative z-10">
+              {/* Lab Info (Mahasiswa only) */}
+              {activeContent.labInfo && (
+                <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-xl animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+                  <div className="flex items-center gap-4 mb-4">
+                    <span className="flex h-4 w-4 relative">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
+                    </span>
+                    <h4 className="text-white font-bold text-xl tracking-wide">Live di {activeContent.labInfo.room}</h4>
+                  </div>
+                  <p className="text-gray-300 text-sm mb-3">Dosen Pendamping Hadir:</p>
+                  <div className="flex flex-wrap gap-3">
+                    {activeContent.labInfo.dosenPresent.map((dosen, i) => (
+                      <span key={i} className="bg-white/10 border border-white/20 text-white px-4 py-2 rounded-xl text-sm font-semibold backdrop-blur-md flex items-center gap-2">
+                        👨‍🏫 {dosen}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            </div>
+          ) : (
+            
+            /* Modern Waiting Screen */
+            <div className="h-full min-h-[500px] flex flex-col items-center justify-center bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl relative overflow-hidden">
+              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5 mix-blend-overlay"></div>
+              
+              <div className="relative flex items-center justify-center mb-10">
+                {/* Pulsing rings */}
+                <div className="absolute w-40 h-40 border-2 border-indigo-500/30 rounded-full animate-ping" style={{ animationDuration: '3s' }}></div>
+                <div className="absolute w-56 h-56 border border-indigo-500/20 rounded-full animate-ping" style={{ animationDuration: '3s', animationDelay: '0.5s' }}></div>
+                <div className="absolute w-72 h-72 border border-indigo-500/10 rounded-full animate-ping" style={{ animationDuration: '3s', animationDelay: '1s' }}></div>
+                
+                {/* Central RFID Icon */}
+                <div className="relative z-10 w-28 h-28 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-3xl shadow-2xl shadow-indigo-500/50 flex items-center justify-center transform hover:scale-105 transition-transform">
+                  <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8h16M4 16h16"></path>
+                  </svg>
+                </div>
+              </div>
+              
+              <h2 className="text-3xl font-black text-white tracking-tight mb-3 text-center">Tunggu Pemindaian...</h2>
+              <p className="text-gray-400 font-medium text-center max-w-sm">
+                Silakan tempelkan kartu RFID Anda pada alat pemindai untuk mengakses portal informasi.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar: ID Card & Logs */}
+        <div className="w-full lg:w-1/3 flex flex-col gap-6">
+          
+          {/* Digital ID Card */}
+          {activeUser && (
+            <div className={`animate-fade-in-up bg-white/10 backdrop-blur-2xl border-t border-l border-white/30 rounded-3xl p-1 shadow-2xl relative overflow-hidden`}>
+              <div className="absolute top-0 right-0 p-4 opacity-20">
+                <svg className="w-24 h-24 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+              </div>
+              
+              <div className="bg-black/20 rounded-[22px] p-6 h-full flex flex-col relative z-10">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="text-white/60 text-xs font-bold uppercase tracking-widest">Digital ID</div>
+                  <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
+                    <div className={`w-3 h-3 rounded-full ${getAccentColor(activeUser.role)} shadow-[0_0_10px_rgba(255,255,255,0.5)]`}></div>
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-5 mb-8">
-                  <div className={`w-20 h-20 rounded-2xl shadow-md flex items-center justify-center text-3xl font-bold text-white
-                    ${activeUser.role === 'Dosen' ? 'bg-blue-600' : activeUser.role === 'Mahasiswa' ? 'bg-emerald-600' : 'bg-orange-600'}`}>
+                  <div className={`w-20 h-20 rounded-full border-4 border-white/20 flex items-center justify-center text-3xl font-black text-white shadow-xl ${getAccentColor(activeUser.role)}`}>
                     {activeUser.name.charAt(0)}
                   </div>
                   <div>
-                    <h2 className="text-3xl font-bold text-gray-900 tracking-tight">{activeContent.title}</h2>
-                    <span className="inline-block mt-1 px-3 py-1 bg-gray-100 text-gray-600 text-sm font-semibold rounded-lg">
-                      {activeUser.role} Portal
-                    </span>
-                  </div>
-                </div>
-                
-                {/* User Details Profile Card */}
-                <div className="bg-white/90 border border-gray-100 rounded-2xl p-5 mb-8 shadow-sm">
-                  <h3 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2 mb-3">Informasi Pengguna</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-gray-500 font-medium">Nama Lengkap</p>
-                      <p className="font-semibold text-gray-900 text-base">{activeUser.name}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500 font-medium">Role</p>
-                      <p className="font-semibold text-gray-900 text-base">{activeUser.role}</p>
-                    </div>
-                    
-                    {activeUser.role === 'Dosen' && activeUser.nip && (
-                      <div>
-                        <p className="text-gray-500 font-medium">NIP</p>
-                        <p className="font-semibold text-gray-900 text-base">{activeUser.nip}</p>
-                      </div>
-                    )}
-
-                    {activeUser.role === 'Mahasiswa' && (
-                      <>
-                        <div>
-                          <p className="text-gray-500 font-medium">NRP (NIM)</p>
-                          <p className="font-semibold text-gray-900 text-base">{activeUser.nrp}</p>
-                        </div>
-                        <div>
-                          <p className="text-gray-500 font-medium">Jurusan</p>
-                          <p className="font-semibold text-gray-900 text-base">{activeUser.jurusan}</p>
-                        </div>
-                        <div>
-                          <p className="text-gray-500 font-medium">Angkatan</p>
-                          <p className="font-semibold text-gray-900 text-base">{activeUser.angkatan}</p>
-                        </div>
-                      </>
-                    )}
-
-                    {activeUser.role === 'Tamu' && activeUser.instansi && (
-                      <div>
-                        <p className="text-gray-500 font-medium">Asal Instansi</p>
-                        <p className="font-semibold text-gray-900 text-base">{activeUser.instansi}</p>
-                      </div>
-                    )}
-
-                    <div className="sm:col-span-2 mt-2 pt-2 border-t border-gray-50">
-                      <p className="text-gray-500 font-medium">Waktu Tap Kartu</p>
-                      <p className="font-semibold text-gray-900 text-base">
-                        {logs.length > 0 ? new Date(logs[0].time).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'medium' }) : '-'}
-                      </p>
-                    </div>
+                    <h3 className="text-2xl font-bold text-white leading-tight">{activeUser.name}</h3>
+                    <p className="text-gray-300 font-medium mt-1">{activeUser.role}</p>
                   </div>
                 </div>
 
-
-                <div className="bg-gray-50/80 border border-gray-100 rounded-2xl p-6 mb-8 shadow-inner">
-                  <p className="text-lg text-gray-700 leading-relaxed font-medium mb-4">
-                    {activeContent.info}
-                  </p>
-
-                  {/* Dynamic Media Video */}
-                  {activeContent.mediaType === 'video' && activeContent.mediaUrl && (
-                    <div className="w-full aspect-video rounded-xl overflow-hidden shadow-md border border-gray-200">
-                      <iframe 
-                        className="w-full h-full"
-                        src={activeContent.mediaUrl} 
-                        title="Video Player" 
-                        frameBorder="0" 
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                        allowFullScreen>
-                      </iframe>
+                <div className="space-y-4 flex-grow border-t border-white/10 pt-6">
+                  {activeUser.role === 'Dosen' && activeUser.nip && (
+                    <div>
+                      <p className="text-white/50 text-xs font-bold uppercase tracking-wider mb-1">NIP</p>
+                      <p className="text-white font-mono text-lg">{activeUser.nip}</p>
                     </div>
                   )}
-
-                  {/* Dynamic Lab Info for Mahasiswa */}
-                  {activeContent.labInfo && (
-                    <div className="bg-white border border-emerald-100 rounded-xl p-5 shadow-sm mt-4">
-                      <div className="flex items-center gap-3 mb-3">
-                        <span className="flex h-3 w-3 relative">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                        </span>
-                        <h4 className="text-emerald-800 font-bold text-lg">Live di {activeContent.labInfo.room}</h4>
+                  {activeUser.role === 'Mahasiswa' && (
+                    <>
+                      <div>
+                        <p className="text-white/50 text-xs font-bold uppercase tracking-wider mb-1">NRP / NIM</p>
+                        <p className="text-white font-mono text-lg">{activeUser.nrp}</p>
                       </div>
-                      <p className="text-gray-600 text-sm mb-2">Dosen yang sedang berada di ruangan saat ini:</p>
-                      <ul className="flex flex-wrap gap-2">
-                        {activeContent.labInfo.dosenPresent.map((dosen, i) => (
-                          <li key={i} className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg text-sm font-semibold border border-emerald-100">
-                            👨‍🏫 {dosen}
-                          </li>
-                        ))}
-                      </ul>
+                      <div className="flex gap-4">
+                        <div className="flex-1">
+                          <p className="text-white/50 text-xs font-bold uppercase tracking-wider mb-1">Jurusan</p>
+                          <p className="text-white font-medium">{activeUser.jurusan}</p>
+                        </div>
+                        <div className="w-1/3">
+                          <p className="text-white/50 text-xs font-bold uppercase tracking-wider mb-1">Angkatan</p>
+                          <p className="text-white font-medium">{activeUser.angkatan}</p>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {activeUser.role === 'Tamu' && activeUser.instansi && (
+                    <div>
+                      <p className="text-white/50 text-xs font-bold uppercase tracking-wider mb-1">Asal Instansi</p>
+                      <p className="text-white font-medium text-lg">{activeUser.instansi}</p>
                     </div>
                   )}
                 </div>
-                
-                <h3 className="text-xl font-bold mb-4 text-gray-800">Quick Access</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {activeContent.widgets.map((widget, index) => (
-                    <div key={index} className="bg-white border border-gray-200 p-5 rounded-2xl shadow-sm hover:shadow-md hover:border-gray-300 hover:-translate-y-1 transition-all cursor-pointer flex items-center justify-center min-h-[110px] text-center font-semibold text-gray-700 group">
-                      <span className="group-hover:text-blue-600 transition-colors">{widget}</span>
-                    </div>
-                  ))}
+
+                {/* Fake Barcode */}
+                <div className="mt-8 pt-4 border-t border-white/10 opacity-50 flex flex-col items-center">
+                  <div className="w-full h-10 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiNmZmYiLz48ZyBmaWxsPSIjMDAwIj48cmVjdCB4PSI1JSIgd2lkdGg9IjIlIiBoZWlnaHQ9IjEwMCUiLz48cmVjdCB4PSIxMCUiIHdpZHRoPSIxJSIgaGVpZ2h0PSIxMDAlIi8+PHJlY3QgeD0iMTUlIiB3aWR0aD0iMyUiIGhlaWdodD0iMTAwJSIvPjxyZWN0IHg9IjIyJSIgd2lkdGg9IjElIiBoZWlnaHQ9IjEwMCUiLz48cmVjdCB4PSIyNyUiIHdpZHRoPSI0JSIgaGVpZ2h0PSIxMDAlIi8+PHJlY3QgeD0iMzUlIiB3aWR0aD0iMiUiIGhlaWdodD0iMTAwJSIvPjxyZWN0IHg9IjQwJSIgd2lkdGg9IjElIiBoZWlnaHQ9IjEwMCUiLz48cmVjdCB4PSI0NSUiIHdpZHRoPSIzJSIgaGVpZ2h0PSIxMDAlIi8+PHJlY3QgeD0iNTUlIiB3aWR0aD0iMiUiIGhlaWdodD0iMTAwJSIvPjxyZWN0IHg9IjYwJSIgd2lkdGg9IjElIiBoZWlnaHQ9IjEwMCUiLz48cmVjdCB4PSI2NSUiIHdpZHRoPSI0JSIgaGVpZ2h0PSIxMDAlIi8+PHJlY3QgeD0iNzUlIiB3aWR0aD0iMiUiIGhlaWdodD0iMTAwJSIvPjxyZWN0IHg9IjgyJSIgd2lkdGg9IjElIiBoZWlnaHQ9IjEwMCUiLz48cmVjdCB4PSI4NyUiIHdpZHRoPSIzJSIgaGVpZ2h0PSIxMDAlIi8+PHJlY3QgeD0iOTUlIiB3aWR0aD0iMiUiIGhlaWdodD0iMTAwJSIvPjwvZz48L3N2Zz4=')] bg-repeat-x bg-contain rounded-sm mix-blend-screen invert"></div>
+                  <p className="font-mono text-[10px] mt-1 tracking-widest text-white/50">{activeUser.uid}</p>
                 </div>
               </div>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-gray-400 min-h-[400px]">
-                <div className="w-24 h-24 mb-6 rounded-full bg-gray-100 flex items-center justify-center animate-pulse">
-                  <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"></path>
-                  </svg>
-                </div>
-                <p className="text-xl font-semibold text-gray-500">Waiting for RFID Scan...</p>
-                <p className="text-sm text-gray-400 mt-2">Please tap a card to view content</p>
-              </div>
-            )}
+            </div>
+          )}
+
+          {/* Log Tracker */}
+          <div className="flex-grow min-h-[300px]">
+            <LogTracker logs={logs} />
           </div>
-        </div>
 
-        {/* Sidebar */}
-        <div className="w-full lg:w-80 xl:w-96 flex-shrink-0">
-          <LogTracker logs={logs} />
         </div>
       </div>
       
-      {/* Inline animation styles */}
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(15px); }
+          from { opacity: 0; transform: translateY(20px); }
           to { opacity: 1; transform: translateY(0); }
         }
         .animate-fade-in-up {
-          animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
       `}} />
     </div>
