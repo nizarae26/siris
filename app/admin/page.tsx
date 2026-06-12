@@ -88,6 +88,7 @@ export default function AdminDashboard() {
   });
     const [activeMkId, setActiveMkId] = useState<string>('mk1');
   const [usersList, setUsersList] = useState<UserData[]>([]);
+  const [usersCurrentPage, setUsersCurrentPage] = useState(1);
   
   // State for Auto-Fill UID from Scanner
   const [lastScannedUid, setLastScannedUid] = useState<string>('');
@@ -324,6 +325,14 @@ useEffect(() => {
       return { ...mk, nama: newNama };
     }));
   };
+
+  // Pagination for Users
+  const USERS_PER_PAGE = 5;
+  const usersTotalPages = Math.ceil(usersList.length / USERS_PER_PAGE);
+  const paginatedUsers = usersList.slice(
+    (usersCurrentPage - 1) * USERS_PER_PAGE,
+    usersCurrentPage * USERS_PER_PAGE
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
@@ -729,7 +738,10 @@ useEffect(() => {
                   <p className="text-gray-500 mt-1 text-sm">Daftarkan kartu RFID untuk Dosen, Mahasiswa, atau Tamu.</p>
                 </div>
                 <button 
-                  onClick={() => setUsersList(prev => [{ uid: '', name: '', role: 'Mahasiswa', nrp: '', jurusan: '' }, ...prev])}
+                  onClick={() => {
+                    setUsersList(prev => [{ uid: '', name: '', role: 'Mahasiswa', nrp: '', jurusan: '' }, ...prev]);
+                    setUsersCurrentPage(1);
+                  }}
                   className="bg-purple-600 text-white px-5 py-2.5 rounded-xl hover:bg-purple-700 font-bold shadow-sm transition-all flex items-center gap-2"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
@@ -753,7 +765,9 @@ useEffect(() => {
                     <p className="text-gray-500 font-medium">Belum ada pengguna yang terdaftar.</p>
                   </div>
                 )}
-                {usersList.map((user, idx) => (
+                {paginatedUsers.map((user, displayIdx) => {
+                  const idx = (usersCurrentPage - 1) * USERS_PER_PAGE + displayIdx;
+                  return (
                   <div key={idx} className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow relative">
                     <button 
                       onClick={() => setUsersList(prev => prev.filter((_, i) => i !== idx))}
@@ -837,8 +851,44 @@ useEffect(() => {
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
+
+              {/* Pagination Controls */}
+              {usersTotalPages > 1 && (
+                <div className="flex justify-center items-center gap-2 mt-8">
+                  <button
+                    disabled={usersCurrentPage === 1}
+                    onClick={() => setUsersCurrentPage(p => p - 1)}
+                    className="px-4 py-2 border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
+                  >
+                    Previous
+                  </button>
+                  
+                  {Array.from({ length: usersTotalPages }).map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setUsersCurrentPage(i + 1)}
+                      className={`w-10 h-10 rounded-lg font-bold transition-colors ${
+                        usersCurrentPage === i + 1 
+                          ? 'bg-purple-600 text-white shadow-md' 
+                          : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {i + 1}
+                    </button>
+                  ))}
+                  
+                  <button
+                    disabled={usersCurrentPage === usersTotalPages}
+                    onClick={() => setUsersCurrentPage(p => p + 1)}
+                    className="px-4 py-2 border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -958,6 +1008,16 @@ useEffect(() => {
           </div>
           )}
         </div>
+      </div>
+
+      {/* Footer */}
+      <div className="w-full pb-6 pt-4 flex flex-col items-center justify-center space-y-1">
+        <p className="text-gray-400 text-[10px] font-medium tracking-widest uppercase">
+          &copy; {new Date().getFullYear()} SIRIS Project. All rights reserved.
+        </p>
+        <p className="text-gray-500 text-xs font-bold tracking-[0.2em] uppercase flex items-center gap-1.5">
+          Powered By <span className="text-indigo-600 font-black">24 Telkom D</span>
+        </p>
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `

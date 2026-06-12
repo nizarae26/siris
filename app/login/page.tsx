@@ -39,7 +39,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 relative overflow-hidden font-sans">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 relative overflow-hidden font-sans">
       {/* Dynamic Background Elements */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500 rounded-full mix-blend-multiply filter blur-[100px] opacity-40 animate-blob"></div>
       <div className="absolute top-[20%] right-[-10%] w-[40%] h-[40%] bg-purple-500 rounded-full mix-blend-multiply filter blur-[100px] opacity-40 animate-blob animation-delay-2000"></div>
@@ -124,7 +124,16 @@ export default function LoginPage() {
           </form>
         </div>
       </div>
-      
+      {/* Footer */}
+      <div className="w-full flex flex-col items-center justify-center z-10 space-y-1 mt-8">
+        <p className="text-gray-400/80 text-[10px] font-medium tracking-widest uppercase">
+          &copy; {new Date().getFullYear()} SIRIS Project. All rights reserved.
+        </p>
+        <p className="text-gray-500 text-xs font-bold tracking-[0.2em] uppercase flex items-center gap-1.5">
+          Powered By <span className="text-indigo-600 font-black">24 Telkom D</span>
+        </p>
+      </div>
+
       {/* Inline styles for custom animations */}
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes blob {

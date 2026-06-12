@@ -339,6 +339,16 @@ export default function Dashboard() {
 
         </div>
       </div>
+
+      {/* Footer */}
+      <div className="w-full flex flex-col items-center justify-center z-10 space-y-1 opacity-80 hover:opacity-100 transition-opacity mt-8">
+        <p className="text-white/40 text-[10px] font-medium tracking-widest uppercase">
+          &copy; {new Date().getFullYear()} SIRIS Project. All rights reserved.
+        </p>
+        <p className="text-white/60 text-xs font-bold tracking-[0.2em] uppercase flex items-center gap-1.5">
+          Powered By <span className="text-indigo-400 font-black">24 Telkom D</span>
+        </p>
+      </div>
       
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes fadeInUp {
