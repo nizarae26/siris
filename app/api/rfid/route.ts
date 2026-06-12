@@ -159,6 +159,12 @@ async function processScan(uid: string) {
         content.info = 'Tidak ada jadwal aktif untuk saat ini';
         content.labInfo = { room: 'Ruang Mandiri', dosenPresent: ['Tidak ada jadwal aktif'] };
       }
+    } else if (user.role === 'Tamu') {
+      content.info = `Selamat datang, ${user.name}. Berikut adalah informasi profil instansi kami:`;
+      if (tamuData?.data?.videoUrl) {
+        content.mediaUrl = tamuData.data.videoUrl;
+        content.mediaType = 'video';
+      }
     }
 
     addLog({ uid, name: user.name, role: user.role, status: 'SUCCESS' });
