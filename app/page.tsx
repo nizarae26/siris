@@ -9,6 +9,19 @@ export default function Dashboard() {
   const [activeContent, setActiveContent] = useState<Content | null>(null);
   const [logs, setLogs] = useState<ScanLog[]>([]);
 
+  // Fungsi pintar untuk otomatis mengubah link youtube biasa menjadi link embed!
+  const getYouTubeEmbedUrl = (url: string) => {
+    if (!url) return url;
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    if (match && match[2].length === 11) {
+      // Browsers block autoplay if it has sound and user hasn't interacted with the page.
+      // Menambahkan mute=1 memaksa browser untuk memutar video secara otomatis (meski tanpa suara awalnya)
+      return `https://www.youtube.com/embed/${match[2]}?autoplay=1&mute=1&rel=0`;
+    }
+    return url;
+  };
+
   useEffect(() => {
     // Connect to Server-Sent Events (SSE) for real-time hardware updates
     const eventSource = new EventSource('/api/rfid');
@@ -91,15 +104,7 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="hidden md:flex items-center gap-3">
-          <a 
-            href="/simulator" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/10 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all shadow-lg backdrop-blur-md"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-            Simulator
-          </a>
+
           <a 
             href="/admin" 
             className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 border border-indigo-400/50 px-5 py-2.5 rounded-xl text-sm font-bold text-white shadow-lg shadow-indigo-500/30 transition-all"
@@ -135,8 +140,8 @@ export default function Dashboard() {
                     <div className="w-full h-full min-h-[300px] lg:min-h-[400px] rounded-2xl overflow-hidden shadow-inner border border-white/10 bg-black/50 backdrop-blur-md">
                       {activeContent.mediaUrl.includes('youtube.com') || activeContent.mediaUrl.includes('youtu.be') ? (
                         <iframe 
-                          className="w-full h-full"
-                          src={`${activeContent.mediaUrl}${activeContent.mediaUrl.includes('?') ? '&' : '?'}autoplay=1`} 
+                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.02]" 
+                          src={getYouTubeEmbedUrl(activeContent.mediaUrl)} 
                           title="Video Player" 
                           frameBorder="0" 
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
@@ -163,17 +168,60 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* Jadwal Dosen (Semester) */}
+              {activeContent.dosenSchedule && (
+                <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-xl animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+                  <div className="flex items-center gap-4 mb-6 border-b border-white/10 pb-4">
+                    <h4 className="text-white font-bold text-xl tracking-wide flex items-center gap-2">
+                      <svg className="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                      Jadwal Mengajar Anda Semester Ini
+                    </h4>
+                  </div>
+                  <div className="overflow-x-auto">
+                    {activeContent.dosenSchedule.length === 0 ? (
+                      <p className="text-gray-400 text-center py-4">Belum ada jadwal yang didaftarkan untuk Anda.</p>
+                    ) : (
+                      <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-indigo-300 uppercase bg-white/5 border-b border-white/10">
+                          <tr>
+                            <th className="px-4 py-3 rounded-tl-lg">Hari</th>
+                            <th className="px-4 py-3">Waktu</th>
+                            <th className="px-4 py-3">Mata Kuliah</th>
+                            <th className="px-4 py-3">Ruangan</th>
+                            <th className="px-4 py-3 rounded-tr-lg">Kelas</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activeContent.dosenSchedule.sort((a: any, b: any) => {
+                            const hariMap: any = { 'Senin': 1, 'Selasa': 2, 'Rabu': 3, 'Kamis': 4, 'Jumat': 5, 'Sabtu': 6, 'Minggu': 7 };
+                            return (hariMap[a.hari] || 0) - (hariMap[b.hari] || 0);
+                          }).map((j: any) => (
+                            <tr key={j.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                              <td className="px-4 py-3 font-semibold text-indigo-200">{j.hari}</td>
+                              <td className="px-4 py-3 text-gray-300">{j.waktuMulai} - {j.waktuSelesai}</td>
+                              <td className="px-4 py-3 text-white font-medium">{j.namaMk}</td>
+                              <td className="px-4 py-3 text-emerald-300">{j.ruangan}</td>
+                              <td className="px-4 py-3 text-gray-300">{j.kelas}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Lab Info (Mahasiswa only) */}
-              {activeContent.labInfo && (
+              {activeContent.labInfo && !activeContent.dosenSchedule && (
                 <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-xl animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
                   <div className="flex items-center gap-4 mb-4">
                     <span className="flex h-4 w-4 relative">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
                     </span>
-                    <h4 className="text-white font-bold text-xl tracking-wide">Live di {activeContent.labInfo.room}</h4>
+                    <h4 className="text-white font-bold text-xl tracking-wide">Sesi Aktif: {activeContent.labInfo.room}</h4>
                   </div>
-                  <p className="text-gray-300 text-sm mb-3">Dosen Pendamping Hadir:</p>
+                  <p className="text-gray-300 text-sm mb-3">Dosen Pengampu:</p>
                   <div className="flex flex-wrap gap-3">
                     {activeContent.labInfo.dosenPresent.map((dosen, i) => (
                       <span key={i} className="bg-white/10 border border-white/20 text-white px-4 py-2 rounded-xl text-sm font-semibold backdrop-blur-md flex items-center gap-2">

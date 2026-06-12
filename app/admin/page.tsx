@@ -3,30 +3,39 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '../../lib/supabase';
+import Swal from 'sweetalert2';
+
+const ModernSwal = Swal.mixin({
+  background: '#1e293b',
+  color: '#f8fafc',
+  customClass: {
+    popup: 'rounded-2xl border border-white/10 shadow-2xl',
+    confirmButton: 'bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl px-5 py-2.5 font-bold',
+    cancelButton: 'bg-slate-700 hover:bg-slate-600 text-white rounded-xl px-5 py-2.5 font-bold ml-3',
+  },
+  buttonsStyling: false
+});
 
 type VideoType = 'youtube' | 'upload';
 
-interface Pembelajaran {
+interface MataKuliah {
   id: string;
-  judul: string;
+  nama: string;
   videoType: VideoType;
   videoUrl: string;
   fileName?: string;
   fileObj?: File;
 }
 
-interface MataKuliah {
-  id: string;
-  nama: string;
-  pembelajaran: Pembelajaran[];
-}
-
 interface JadwalHarian {
   id: string;
-  namaHari: string;
+  hari: string;
+  waktuMulai: string;
+  waktuSelesai: string;
   mkId: string;
-  pembId: string;
   dosen: string;
+  ruangan: string;
+  kelas: string;
 }
 
 export type Role = 'Dosen' | 'Mahasiswa' | 'Tamu';
@@ -40,26 +49,27 @@ export interface UserData {
   jurusan?: string;
   angkatan?: number | string;
   instansi?: string;
+  videoType?: VideoType;
+  videoUrl?: string;
 }
 
 interface JadwalConfigData {
-  startDate: string;
-  manualWeekOverride: number | null;
-  weeks: Record<number, JadwalHarian[]>;
+  semesterSchedule: JadwalHarian[];
 }
 
-const getDefaultWeek = (): JadwalHarian[] => [
-  { id: 'senin', namaHari: 'Senin', mkId: '', pembId: '', dosen: '' },
-  { id: 'selasa', namaHari: 'Selasa', mkId: '', pembId: '', dosen: '' },
-  { id: 'rabu', namaHari: 'Rabu', mkId: '', pembId: '', dosen: '' },
-  { id: 'kamis', namaHari: 'Kamis', mkId: '', pembId: '', dosen: '' },
-  { id: 'jumat', namaHari: 'Jumat', mkId: '', pembId: '', dosen: '' },
-];
+const getDefaultSchedule = (): JadwalHarian[] => [];
 
-const getDefaultWeeks = () => {
-  const w: Record<number, JadwalHarian[]> = {};
-  for(let i=1; i<=16; i++) w[i] = getDefaultWeek();
-  return w;
+
+
+// Fungsi pintar untuk otomatis mengubah link youtube biasa menjadi link embed!
+const getYouTubeEmbedUrl = (url: string) => {
+  if (!url) return url;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  if (match && match[2].length === 11) {
+    return `https://www.youtube.com/embed/${match[2]}?autoplay=0`;
+  }
+  return url;
 };
 
 export default function AdminDashboard() {
@@ -67,28 +77,16 @@ export default function AdminDashboard() {
     {
       id: 'mk1',
       nama: 'Komunikasi Data',
-      pembelajaran: [
-        { id: 'p1', judul: 'Pertemuan 1: Pengenalan Sinyal', videoType: 'youtube', videoUrl: 'https://www.youtube.com/embed/EngW7tLk6R8' },
-        { id: 'p2', judul: 'Pertemuan 2: Modulasi Analog', videoType: 'upload', videoUrl: '', fileName: 'modulasi_analog_ch1.mp4' }
-      ]
-    },
-    {
-      id: 'mk2',
-      nama: 'Sistem Tertanam (Embedded Systems)',
-      pembelajaran: [
-        { id: 'p3', judul: 'Modul 1: Mikrokontroler Dasar', videoType: 'youtube', videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ' }
-      ]
+      videoType: 'youtube',
+      videoUrl: 'https://www.youtube.com/embed/EngW7tLk6R8',
     }
   ]);
 
-  const [activeTab, setActiveTab] = useState<'matakuliah' | 'tamu' | 'jadwal' | 'users'>('matakuliah');
+  const [activeTab, setActiveTab] = useState<'matakuliah' | 'tamu' | 'jadwal' | 'users' | 'riwayat'>('matakuliah');
   const [jadwalConfig, setJadwalConfig] = useState<JadwalConfigData>({
-    startDate: new Date().toISOString().split('T')[0],
-    manualWeekOverride: null,
-    weeks: getDefaultWeeks()
+    semesterSchedule: []
   });
-  const [editWeek, setEditWeek] = useState<number>(1);
-  const [activeMkId, setActiveMkId] = useState<string>('mk1');
+    const [activeMkId, setActiveMkId] = useState<string>('mk1');
   const [usersList, setUsersList] = useState<UserData[]>([]);
   
   // State for Auto-Fill UID from Scanner
@@ -100,7 +98,13 @@ export default function AdminDashboard() {
   const [tamuFileName, setTamuFileName] = useState('');
   const [tamuFileObj, setTamuFileObj] = useState<File | null>(null);
 
-  const [isSaving, setIsSaving] = useState(false);
+  
+  // Riwayat State
+  const [riwayatData, setRiwayatData] = useState<any[]>([]);
+  const [riwayatMonth, setRiwayatMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [loadingRiwayat, setLoadingRiwayat] = useState(false);
+
+const [isSaving, setIsSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -108,7 +112,39 @@ export default function AdminDashboard() {
   const activeMk = mataKuliahList.find(mk => mk.id === activeMkId);
 
   // Listen for RFID Scans for Auto-Fill
+  
   useEffect(() => {
+    if (activeTab === 'riwayat') {
+      const fetchRiwayat = async () => {
+        setLoadingRiwayat(true);
+        try {
+          const startOfMonth = new Date(`${riwayatMonth}-01T00:00:00.000Z`).toISOString();
+          const [year, month] = riwayatMonth.split('-');
+          const nextMonthDate = new Date(Date.UTC(parseInt(year), parseInt(month), 1));
+          const endOfMonth = nextMonthDate.toISOString();
+
+          const { data, error } = await supabase
+            .from('scan_logs')
+            .select('*')
+            .gte('created_at', startOfMonth)
+            .lt('created_at', endOfMonth)
+            .order('created_at', { ascending: false });
+
+          if (!error && data) {
+            setRiwayatData(data);
+          } else {
+            setRiwayatData([]);
+          }
+        } catch (e) {
+          console.error(e);
+        }
+        setLoadingRiwayat(false);
+      };
+      fetchRiwayat();
+    }
+  }, [activeTab, riwayatMonth]);
+
+useEffect(() => {
     const eventSource = new EventSource('/api/rfid');
     eventSource.onmessage = (event) => {
       try {
@@ -126,10 +162,15 @@ export default function AdminDashboard() {
   useEffect(() => {
     async function loadData() {
       try {
-        const { data: mkData } = await supabase.from('settings').select('data').eq('id', 1).single();
-        const { data: tamuData } = await supabase.from('settings').select('data').eq('id', 2).single();
-        const { data: jadwalData } = await supabase.from('settings').select('data').eq('id', 3).single();
-        const { data: usersData } = await supabase.from('settings').select('data').eq('id', 4).single();
+        const { data: mkRows } = await supabase.from('settings').select('data').eq('id', 1).order('created_at', { ascending: false }).limit(1);
+        const { data: tamuRows } = await supabase.from('settings').select('data').eq('id', 2).order('created_at', { ascending: false }).limit(1);
+        const { data: jadwalRows } = await supabase.from('settings').select('data').eq('id', 3).order('created_at', { ascending: false }).limit(1);
+        const { data: usersRows } = await supabase.from('settings').select('data').eq('id', 4).order('created_at', { ascending: false }).limit(1);
+        
+        const mkData = mkRows?.[0];
+        const tamuData = tamuRows?.[0];
+        const jadwalData = jadwalRows?.[0];
+        const usersData = usersRows?.[0];
         
         if (mkData?.data) setMataKuliahList(mkData.data);
         if (tamuData?.data) {
@@ -138,11 +179,7 @@ export default function AdminDashboard() {
         }
         if (jadwalData?.data) {
           const loadedData = jadwalData.data as JadwalConfigData;
-          setJadwalConfig({
-            startDate: loadedData.startDate || new Date().toISOString().split('T')[0],
-            manualWeekOverride: loadedData.manualWeekOverride || null,
-            weeks: { ...getDefaultWeeks(), ...loadedData.weeks }
-          });
+          setJadwalConfig({ semesterSchedule: loadedData.semesterSchedule || [] });
         }
         if (usersData?.data) setUsersList(usersData.data);
       } catch (err) {
@@ -166,32 +203,19 @@ export default function AdminDashboard() {
     try {
       let updatedMataKuliahList = [...mataKuliahList];
 
-      // Process uploads
+      // Process uploads for MataKuliah
       for (let i = 0; i < updatedMataKuliahList.length; i++) {
         let mk = { ...updatedMataKuliahList[i] };
-        let updatedPembelajaran = [...mk.pembelajaran];
-
-        for (let j = 0; j < updatedPembelajaran.length; j++) {
-          let pemb = { ...updatedPembelajaran[j] };
-          
-          if (pemb.videoType === 'upload' && pemb.fileObj) {
-            const fileName = `videos/${Date.now()}_${pemb.fileObj.name.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
-            const { error: uploadError } = await supabase.storage
-              .from('rfid-assets')
-              .upload(fileName, pemb.fileObj, { cacheControl: '3600', upsert: true });
-            
-            if (uploadError) throw uploadError;
-            
-            const { data: publicUrlData } = supabase.storage
-              .from('rfid-assets')
-              .getPublicUrl(fileName);
-            
-            pemb.videoUrl = publicUrlData.publicUrl;
-            delete pemb.fileObj; // Clean up before saving to DB
-          }
-          updatedPembelajaran[j] = pemb;
+        if (mk.videoType === 'upload' && mk.fileObj) {
+          const fileName = `videos/${Date.now()}_${mk.fileObj.name.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
+          const { error: uploadError } = await supabase.storage
+            .from('rfid-assets')
+            .upload(fileName, mk.fileObj, { cacheControl: '3600', upsert: true });
+          if (uploadError) throw uploadError;
+          const { data: publicUrlData } = supabase.storage.from('rfid-assets').getPublicUrl(fileName);
+          mk.videoUrl = publicUrlData.publicUrl;
+          delete mk.fileObj;
         }
-        mk.pembelajaran = updatedPembelajaran;
         updatedMataKuliahList[i] = mk;
       }
 
@@ -238,64 +262,51 @@ export default function AdminDashboard() {
       if (usersError) throw usersError;
 
       setMataKuliahList(updatedMataKuliahList);
+      setLastScannedUid(''); // Hapus alert kartu baru setelah berhasil disimpan
       setShowSuccess(true);
+      ModernSwal.fire({
+        title: 'Berhasil!',
+        text: 'Pengaturan berhasil disimpan ke Database',
+        icon: 'success',
+        timer: 3000
+      });
       setTimeout(() => setShowSuccess(false), 3000);
     } catch (error) {
       console.error('Error saving to Supabase:', error);
-      alert('Gagal menyimpan data ke Database');
+      ModernSwal.fire({
+        title: 'Gagal!',
+        text: 'Gagal menyimpan data ke Database. Pastikan koneksi stabil.',
+        icon: 'error'
+      });
     } finally {
       setIsSaving(false);
     }
   };
 
-  const updatePembelajaran = (mkId: string, pembId: string, updates: Partial<Pembelajaran>) => {
-    setMataKuliahList(prev => prev.map(mk => {
-      if (mk.id !== mkId) return mk;
-      return {
-        ...mk,
-        pembelajaran: mk.pembelajaran.map(p => p.id === pembId ? { ...p, ...updates } : p)
-      };
-    }));
-  };
-
-  const handleFileUpload = (mkId: string, pembId: string, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const fakeUrl = URL.createObjectURL(file);
-      updatePembelajaran(mkId, pembId, { videoUrl: fakeUrl, fileName: file.name, fileObj: file });
-    }
-  };
-
-  const tambahPembelajaran = (mkId: string) => {
-    setMataKuliahList(prev => prev.map(mk => {
-      if (mk.id !== mkId) return mk;
-      const newId = `p${Date.now()}`;
-      return {
-        ...mk,
-        pembelajaran: [...mk.pembelajaran, { id: newId, judul: `Pertemuan Baru`, videoType: 'youtube', videoUrl: '' }]
-      };
-    }));
-  };
-
-  const hapusPembelajaran = (mkId: string, pembId: string) => {
-    if(!confirm('Apakah Anda yakin ingin menghapus pertemuan ini?')) return;
-    setMataKuliahList(prev => prev.map(mk => {
-      if (mk.id !== mkId) return mk;
-      return {
-        ...mk,
-        pembelajaran: mk.pembelajaran.filter(p => p.id !== pembId)
-      };
-    }));
-  };
-
   const tambahMataKuliah = () => {
-    const newId = `mk${Date.now()}`;
-    setMataKuliahList(prev => [...prev, { id: newId, nama: 'Mata Kuliah Baru', pembelajaran: [] }]);
+    const newId = 'mk' + Date.now();
+    setMataKuliahList(prev => [
+      ...prev,
+      {
+        id: newId,
+        nama: 'Mata Kuliah Baru',
+        videoType: 'youtube',
+        videoUrl: ''
+      }
+    ]);
     setActiveMkId(newId);
   };
 
-  const hapusMataKuliah = (mkId: string) => {
-    if(!confirm('Apakah Anda yakin ingin menghapus seluruh mata kuliah ini beserta isinya?')) return;
+  const hapusMataKuliah = async (mkId: string) => {
+    const result = await ModernSwal.fire({
+      title: 'Hapus Mata Kuliah?',
+      text: "Seluruh pertemuan di dalam mata kuliah ini akan ikut terhapus. Lanjutkan?",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Ya, Hapus!',
+      cancelButtonText: 'Batal'
+    });
+    if(!result.isConfirmed) return;
     setMataKuliahList(prev => {
       const filtered = prev.filter(mk => mk.id !== mkId);
       if (filtered.length > 0) {
@@ -363,7 +374,14 @@ export default function AdminDashboard() {
             <span className="text-lg">📅</span> Jadwal Harian
           </button>
           
+          
           <button 
+            onClick={() => setActiveTab('riwayat')}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all ${activeTab === 'riwayat' ? 'bg-teal-50 text-teal-700 border border-teal-100 shadow-sm' : 'text-gray-600 hover:bg-white border border-transparent'}`}
+          >
+            <span className="text-lg">⏱️</span> Riwayat Tap
+          </button>
+<button 
             onClick={() => setActiveTab('users')}
             className={`flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all ${activeTab === 'users' ? 'bg-purple-50 text-purple-700 border border-purple-100 shadow-sm' : 'text-gray-600 hover:bg-white border border-transparent'}`}
           >
@@ -423,52 +441,36 @@ export default function AdminDashboard() {
                     </button>
                   </div>
 
-                  <div className="space-y-6">
-                  {activeMk.pembelajaran.map((pemb, index) => (
-                    <div key={pemb.id} className="border border-gray-100 bg-gray-50/50 rounded-2xl p-5 shadow-sm">
-                      <div className="flex items-center justify-between mb-4 border-b border-gray-200 pb-3">
-                        <div className="flex items-center gap-3 w-full max-w-lg">
-                          <span className="bg-indigo-100 text-indigo-700 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">{index + 1}</span>
-                          <input 
-                            type="text"
-                            value={pemb.judul}
-                            onChange={(e) => updatePembelajaran(activeMk.id, pemb.id, { judul: e.target.value })}
-                            className="font-bold text-gray-800 text-lg bg-transparent border-b border-transparent hover:border-gray-300 focus:border-indigo-500 focus:outline-none px-1 py-1 w-full transition-colors"
-                            placeholder="Judul Pertemuan..."
-                          />
-                        </div>
-                        <button 
-                          onClick={() => hapusPembelajaran(activeMk.id, pemb.id)}
-                          className="text-red-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                          title="Hapus Pertemuan"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                        </button>
-                      </div>
-
+                                    <div className="border border-gray-100 bg-gray-50/50 rounded-2xl p-5 shadow-sm">
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div>
-                          <label className="block text-sm font-semibold text-gray-700 mb-3">Sumber Video</label>
+                          <label className="block text-sm font-semibold text-gray-700 mb-3">Sumber Video Mata Kuliah</label>
                           <div className="flex gap-2 mb-4 p-1 bg-gray-200/50 rounded-lg w-max">
                             <button 
-                              onClick={() => updatePembelajaran(activeMk.id, pemb.id, { videoType: 'youtube' })}
-                              className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${pemb.videoType === 'youtube' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                              onClick={() => {
+                                setMataKuliahList(prev => prev.map(m => m.id === activeMk.id ? {...m, videoType: 'youtube'} : m));
+                              }}
+                              className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${activeMk.videoType === 'youtube' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                             >
                               YouTube Link
                             </button>
                             <button 
-                              onClick={() => updatePembelajaran(activeMk.id, pemb.id, { videoType: 'upload' })}
-                              className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${pemb.videoType === 'upload' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                              onClick={() => {
+                                setMataKuliahList(prev => prev.map(m => m.id === activeMk.id ? {...m, videoType: 'upload'} : m));
+                              }}
+                              className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${activeMk.videoType === 'upload' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                             >
                               Upload File
                             </button>
                           </div>
 
-                          {pemb.videoType === 'youtube' ? (
+                          {activeMk.videoType === 'youtube' ? (
                             <input 
                               type="text" 
-                              value={pemb.videoUrl}
-                              onChange={(e) => updatePembelajaran(activeMk.id, pemb.id, { videoUrl: e.target.value })}
+                              value={activeMk.videoUrl}
+                              onChange={(e) => {
+                                setMataKuliahList(prev => prev.map(m => m.id === activeMk.id ? {...m, videoUrl: e.target.value} : m));
+                              }}
                               className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-sm"
                               placeholder="https://www.youtube.com/embed/..."
                             />
@@ -477,13 +479,23 @@ export default function AdminDashboard() {
                               <input 
                                 type="file" 
                                 accept="video/*"
-                                onChange={(e) => handleFileUpload(activeMk.id, pemb.id, e)}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    setMataKuliahList(prev => prev.map(m => m.id === activeMk.id ? {
+                                      ...m,
+                                      fileObj: file,
+                                      fileName: file.name,
+                                      videoUrl: URL.createObjectURL(file)
+                                    } : m));
+                                  }
+                                }}
                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
                               />
                               <div className="flex flex-col items-center gap-2">
-                                <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                                <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
                                 <span className="text-sm font-medium text-gray-600">
-                                  {pemb.fileName ? pemb.fileName : 'Klik atau seret video ke sini'}
+                                  {activeMk.fileName ? activeMk.fileName : 'Klik atau seret video ke sini'}
                                 </span>
                               </div>
                             </div>
@@ -492,27 +504,18 @@ export default function AdminDashboard() {
 
                         {/* Video Preview */}
                         <div className="aspect-video w-full rounded-xl overflow-hidden bg-black border border-gray-200 relative">
-                          {pemb.videoUrl ? (
-                            pemb.videoType === 'youtube' ? (
-                              <iframe className="w-full h-full" src={pemb.videoUrl} frameBorder="0" allowFullScreen></iframe>
+                          {activeMk.videoUrl ? (
+                            activeMk.videoType === 'youtube' ? (
+                              <iframe className="w-full h-full" src={getYouTubeEmbedUrl(activeMk.videoUrl)} frameBorder="0" allowFullScreen></iframe>
                             ) : (
-                              <video className="w-full h-full object-cover" src={pemb.videoUrl} controls></video>
+                              <video className="w-full h-full object-cover" src={activeMk.videoUrl} controls></video>
                             )
                           ) : (
                             <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm bg-gray-100">Belum ada video</div>
                           )}
                         </div>
                       </div>
-                    </div>
-                  ))}
-                  <button 
-                    onClick={() => tambahPembelajaran(activeMk.id)}
-                    className="w-full py-4 border-2 border-dashed border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 rounded-2xl font-bold transition-all flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
-                    Tambah Pertemuan / Materi Baru
-                  </button>
-                </div>
+                  </div>
                 </>
               )}
             </div>
@@ -575,7 +578,7 @@ export default function AdminDashboard() {
                 <div className="aspect-video w-full md:w-3/4 max-w-2xl rounded-xl overflow-hidden bg-black border border-gray-200">
                   {tamuVideoUrl ? (
                     tamuVideoType === 'youtube' ? (
-                      <iframe className="w-full h-full" src={tamuVideoUrl} frameBorder="0" allowFullScreen></iframe>
+                      <iframe className="w-full h-full" src={getYouTubeEmbedUrl(tamuVideoUrl)} frameBorder="0" allowFullScreen></iframe>
                     ) : (
                       <video className="w-full h-full object-cover" src={tamuVideoUrl} controls></video>
                     )
@@ -589,166 +592,134 @@ export default function AdminDashboard() {
 
           {activeTab === 'jadwal' && (
             <div className="p-6 md:p-8 flex-grow overflow-y-auto">
-              <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4 border-b border-gray-100 pb-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4 border-b border-gray-100 pb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-800">Jadwal Perkuliahan</h2>
-                  <p className="text-gray-500 mt-1 text-sm">Atur jadwal per minggu selama satu semester (1-16).</p>
+                  <p className="text-gray-500 mt-1 text-sm">Atur dan tambahkan jadwal untuk dosen (Senin - Jumat) selama satu semester.</p>
                 </div>
-              </div>
-              
-              {/* Konfigurasi Semester */}
-              <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-5 mb-8 flex flex-col md:flex-row gap-6">
-                <div className="flex-1">
-                  <label className="block text-sm font-bold text-indigo-900 mb-2">Tanggal Mulai Semester</label>
-                  <input 
-                    type="date"
-                    value={jadwalConfig.startDate}
-                    onChange={e => setJadwalConfig(prev => ({ ...prev, startDate: e.target.value }))}
-                    className="w-full px-4 py-2.5 bg-white border border-indigo-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none text-indigo-900 font-medium shadow-sm"
-                  />
-                  <p className="text-xs text-indigo-600 mt-2">Sistem akan otomatis menghitung minggu ke-berapa saat ini berdasarkan tanggal mulai.</p>
-                </div>
-                <div className="flex-1">
-                  <label className="block text-sm font-bold text-indigo-900 mb-2">Paksa Minggu Aktif (Manual)</label>
-                  <div className="relative">
-                    <select 
-                      value={jadwalConfig.manualWeekOverride || ''}
-                      onChange={e => setJadwalConfig(prev => ({ ...prev, manualWeekOverride: e.target.value ? parseInt(e.target.value) : null }))}
-                      className="w-full px-4 py-2.5 bg-white border border-indigo-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none text-indigo-900 font-medium shadow-sm appearance-none cursor-pointer"
-                    >
-                      <option value="">Gunakan Perhitungan Otomatis</option>
-                      {Array.from({length: 16}, (_, i) => i + 1).map(w => (
-                        <option key={w} value={w}>Paksa tayangkan Minggu Ke-{w}</option>
-                      ))}
-                    </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-indigo-500">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Pemilih Minggu yang akan diedit */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
-                <div className="flex items-center gap-3">
-                  <span className="font-bold text-gray-700">Edit Jadwal untuk:</span>
-                  <div className="relative w-48">
-                    <select 
-                      value={editWeek}
-                      onChange={e => setEditWeek(parseInt(e.target.value))}
-                      className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-bold text-gray-800 focus:ring-2 focus:ring-indigo-500 outline-none appearance-none cursor-pointer shadow-sm"
-                    >
-                      {Array.from({length: 16}, (_, i) => i + 1).map(w => (
-                        <option key={w} value={w}>Minggu Ke-{w}</option>
-                      ))}
-                    </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                    </div>
-                  </div>
-                </div>
-                
-                {editWeek > 1 && (
-                  <button 
-                    onClick={() => {
-                      if(confirm(`Salin seluruh jadwal dari Minggu ke-${editWeek-1} ke Minggu ke-${editWeek}?`)) {
-                        setJadwalConfig(prev => ({
-                          ...prev,
-                          weeks: { ...prev.weeks, [editWeek]: JSON.parse(JSON.stringify(prev.weeks[editWeek-1])) }
-                        }));
+                <button 
+                  onClick={async () => {
+                    const { value: hari } = await ModernSwal.fire({
+                      title: 'Tambah Jadwal',
+                      text: 'Pilih hari untuk jadwal baru:',
+                      input: 'select',
+                      inputOptions: {
+                        'Senin': 'Senin',
+                        'Selasa': 'Selasa',
+                        'Rabu': 'Rabu',
+                        'Kamis': 'Kamis',
+                        'Jumat': 'Jumat'
+                      },
+                      inputPlaceholder: 'Pilih Hari',
+                      showCancelButton: true,
+                      customClass: {
+                        popup: 'rounded-2xl border border-white/10 shadow-2xl',
+                        confirmButton: 'bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl px-5 py-2.5 font-bold',
+                        cancelButton: 'bg-slate-700 hover:bg-slate-600 text-white rounded-xl px-5 py-2.5 font-bold ml-3',
+                        input: '!text-black !bg-white border-2 border-gray-300 rounded-lg px-4 py-3 mx-auto max-w-[80%] outline-none'
                       }
-                    }}
-                    className="text-indigo-600 hover:text-indigo-800 text-sm font-semibold flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"></path></svg>
-                    Salin dari Minggu {editWeek - 1}
-                  </button>
-                )}
+                    });
+                    
+                    if (hari) {
+                      setJadwalConfig(prev => ({
+                        ...prev,
+                        semesterSchedule: [
+                          ...(prev.semesterSchedule || []), 
+                          { id: Date.now().toString(), hari: hari, waktuMulai: '08:00', waktuSelesai: '10:00', mkId: '', dosen: '', ruangan: 'JJ-305', kelas: 'A' }
+                        ]
+                      }));
+                    }
+                  }}
+                  className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl hover:bg-indigo-700 font-bold shadow-sm transition-all flex items-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+                  Tambah Jadwal
+                </button>
               </div>
-              
+
               <div className="space-y-4">
-                {jadwalConfig.weeks[editWeek].map((jadwal, dayIdx) => {
-                   const mkOptions = mataKuliahList.find(mk => mk.id === jadwal.mkId);
-                   return (
-                    <div key={jadwal.id} className="bg-white border border-gray-200 rounded-xl p-5 flex flex-col xl:flex-row gap-4 items-center shadow-sm hover:border-indigo-200 hover:shadow-md transition-all">
-                      <div className="w-full xl:w-24 flex-shrink-0">
-                        <span className="font-bold text-gray-700 text-base uppercase bg-gray-100 px-3 py-1.5 rounded-lg">{jadwal.namaHari}</span>
+                {['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'].map(hari => {
+                  const jadwalHariIni = (jadwalConfig.semesterSchedule || []).filter(j => j.hari === hari);
+                  return (
+                    <div key={hari} className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm mb-6">
+                      <div className="bg-gray-50 border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                        <h3 className="text-lg font-bold text-gray-800 uppercase tracking-wider">{hari}</h3>
+                        <span className="bg-indigo-100 text-indigo-800 text-xs font-bold px-3 py-1 rounded-full">{jadwalHariIni.length} Sesi</span>
                       </div>
-                      
-                      <div className="flex-grow grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
-                        <div className="relative">
-                          <label className="block text-xs font-semibold text-gray-500 mb-1">Mata Kuliah</label>
-                          <select 
-                            value={jadwal.mkId}
-                            onChange={(e) => {
-                              const newMkId = e.target.value;
-                              setJadwalConfig(prev => {
-                                const newWeeks = {...prev.weeks};
-                                newWeeks[editWeek][dayIdx] = { ...jadwal, mkId: newMkId, pembId: '' };
-                                return { ...prev, weeks: newWeeks };
-                              });
-                            }}
-                            className="w-full px-4 py-2.5 bg-gray-50 hover:bg-white border border-gray-200 rounded-lg text-sm text-gray-800 font-medium focus:ring-2 focus:ring-indigo-500 outline-none appearance-none cursor-pointer transition-colors"
-                          >
-                            <option value="">-- Libur / Kosong --</option>
-                            {mataKuliahList.map(mk => (
-                              <option key={mk.id} value={mk.id}>{mk.nama}</option>
-                            ))}
-                          </select>
-                          <div className="pointer-events-none absolute bottom-0 top-5 right-0 flex items-center px-3 text-gray-400">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                          </div>
-                        </div>
-
-                        <div className="relative">
-                          <label className="block text-xs font-semibold text-gray-500 mb-1">Materi / Pertemuan</label>
-                          <select 
-                            value={jadwal.pembId}
-                            onChange={(e) => {
-                              setJadwalConfig(prev => {
-                                const newWeeks = {...prev.weeks};
-                                newWeeks[editWeek][dayIdx] = { ...jadwal, pembId: e.target.value };
-                                return { ...prev, weeks: newWeeks };
-                              });
-                            }}
-                            className="w-full px-4 py-2.5 bg-gray-50 hover:bg-white border border-gray-200 rounded-lg text-sm text-gray-800 font-medium focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-50 appearance-none cursor-pointer transition-colors"
-                            disabled={!jadwal.mkId}
-                          >
-                            <option value="">-- Pilih Materi --</option>
-                            {mkOptions?.pembelajaran.map(p => (
-                              <option key={p.id} value={p.id}>{p.judul}</option>
-                            ))}
-                          </select>
-                          <div className="pointer-events-none absolute bottom-0 top-5 right-0 flex items-center px-3 text-gray-400">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 mb-1">Dosen Pengampu</label>
-                          <input 
-                            type="text"
-                            value={jadwal.dosen}
-                            onChange={(e) => {
-                              setJadwalConfig(prev => {
-                                const newWeeks = {...prev.weeks};
-                                newWeeks[editWeek][dayIdx] = { ...jadwal, dosen: e.target.value };
-                                return { ...prev, weeks: newWeeks };
-                              });
-                            }}
-                            placeholder="Nama Dosen..."
-                            className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-800 font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-colors placeholder-gray-300"
-                            disabled={!jadwal.mkId}
-                          />
-                        </div>
+                      <div className="p-6 space-y-4">
+                        {jadwalHariIni.length === 0 ? (
+                          <div className="text-center text-gray-400 py-4 font-medium text-sm border-2 border-dashed border-gray-200 rounded-xl">Belum ada jadwal di hari {hari}</div>
+                        ) : (
+                          jadwalHariIni.map(jadwal => (
+                            <div key={jadwal.id} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-8 gap-4 bg-gray-50/50 p-4 rounded-xl border border-gray-100 relative group hover:border-indigo-200 transition-colors">
+                              <div className="col-span-1">
+                                <label className="block text-xs font-semibold text-gray-500 mb-1">Mulai</label>
+                                <input type="time" value={jadwal.waktuMulai} onChange={e => {
+                                  const newVal = e.target.value;
+                                  setJadwalConfig(prev => ({ semesterSchedule: prev.semesterSchedule.map(j => j.id === jadwal.id ? {...j, waktuMulai: newVal} : j) }));
+                                }} className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm" />
+                              </div>
+                              <div className="col-span-1">
+                                <label className="block text-xs font-semibold text-gray-500 mb-1">Selesai</label>
+                                <input type="time" value={jadwal.waktuSelesai} onChange={e => {
+                                  const newVal = e.target.value;
+                                  setJadwalConfig(prev => ({ semesterSchedule: prev.semesterSchedule.map(j => j.id === jadwal.id ? {...j, waktuSelesai: newVal} : j) }));
+                                }} className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm" />
+                              </div>
+                              <div className="col-span-2">
+                                <label className="block text-xs font-semibold text-gray-500 mb-1">Mata Kuliah</label>
+                                <select value={jadwal.mkId} onChange={e => {
+                                  const newVal = e.target.value;
+                                  setJadwalConfig(prev => ({ semesterSchedule: prev.semesterSchedule.map(j => j.id === jadwal.id ? {...j, mkId: newVal} : j) }));
+                                }} className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm">
+                                  <option value="">-- Pilih Mata Kuliah --</option>
+                                  {mataKuliahList.map(mk => <option key={mk.id} value={mk.id}>{mk.nama}</option>)}
+                                </select>
+                              </div>
+                              <div className="col-span-1">
+                                <label className="block text-xs font-semibold text-gray-500 mb-1">Dosen Pengampu</label>
+                                <select value={jadwal.dosen} onChange={e => {
+                                  const newVal = e.target.value;
+                                  setJadwalConfig(prev => ({ semesterSchedule: prev.semesterSchedule.map(j => j.id === jadwal.id ? {...j, dosen: newVal} : j) }));
+                                }} className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm">
+                                  <option value="">-- Dosen --</option>
+                                  {usersList.filter(u => u.role === 'Dosen').map(u => <option key={u.uid} value={u.name}>{u.name}</option>)}
+                                </select>
+                              </div>
+                              <div className="col-span-1">
+                                <label className="block text-xs font-semibold text-gray-500 mb-1">Ruangan</label>
+                                <input type="text" value={jadwal.ruangan} onChange={e => {
+                                  const newVal = e.target.value;
+                                  setJadwalConfig(prev => ({ semesterSchedule: prev.semesterSchedule.map(j => j.id === jadwal.id ? {...j, ruangan: newVal} : j) }));
+                                }} className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm" />
+                              </div>
+                              <div className="col-span-1">
+                                <label className="block text-xs font-semibold text-gray-500 mb-1">Kelas</label>
+                                <select value={jadwal.kelas} onChange={e => {
+                                  const newVal = e.target.value;
+                                  setJadwalConfig(prev => ({ semesterSchedule: prev.semesterSchedule.map(j => j.id === jadwal.id ? {...j, kelas: newVal} : j) }));
+                                }} className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm">
+                                  <option value="A">A</option>
+                                  <option value="B">B</option>
+                                  <option value="C">C</option>
+                                  <option value="D">D</option>
+                                </select>
+                              </div>
+                              <div className="col-span-1 flex items-end">
+                                <button onClick={() => {
+                                  setJadwalConfig(prev => ({ semesterSchedule: prev.semesterSchedule.filter(j => j.id !== jadwal.id) }));
+                                }} className="w-full px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 rounded-lg text-sm font-bold transition-colors">Hapus</button>
+                              </div>
+                            </div>
+                          ))
+                        )}
                       </div>
                     </div>
-                  )
+                  );
                 })}
               </div>
             </div>
           )}
-
 
           {activeTab === 'users' && (
             <div className="p-6 md:p-8 flex-grow overflow-y-auto bg-gray-50/50">
@@ -864,13 +835,6 @@ export default function AdminDashboard() {
                           <input type="text" value={user.nip || ''} onChange={(e) => setUsersList(prev => prev.map((u, i) => i === idx ? { ...u, nip: e.target.value } : u))} className="w-full px-4 py-2 bg-blue-50/30 border border-blue-100 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Masukkan NIP..." />
                         </div>
                       )}
-
-                      {user.role === 'Tamu' && (
-                        <div>
-                          <label className="block text-xs font-bold text-orange-600 uppercase tracking-wider mb-2">Asal Instansi / Keterangan</label>
-                          <input type="text" value={user.instansi || ''} onChange={(e) => setUsersList(prev => prev.map((u, i) => i === idx ? { ...u, instansi: e.target.value } : u))} className="w-full px-4 py-2 bg-orange-50/30 border border-orange-100 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Perusahaan / Instansi..." />
-                        </div>
-                      )}
                     </div>
                   </div>
                 ))}
@@ -878,7 +842,97 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* Save Footer */}
+          
+          {activeTab === 'riwayat' && (
+            <div className="p-6 md:p-8 flex-grow overflow-y-auto bg-gray-50/50">
+              <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4 border-b border-gray-100 pb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">Riwayat Tap Kartu</h2>
+                  <p className="text-gray-500 mt-1 text-sm">Lihat seluruh aktivitas pemindaian kartu RFID.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-semibold text-gray-700">Pilih Bulan:</label>
+                  <input 
+                    type="month" 
+                    value={riwayatMonth}
+                    onChange={(e) => setRiwayatMonth(e.target.value)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-teal-500 font-semibold bg-white"
+                  />
+                </div>
+              </div>
+
+              {loadingRiwayat ? (
+                <div className="flex justify-center items-center py-20 text-teal-600">
+                  <svg className="animate-spin h-8 w-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="ml-3 font-semibold">Memuat Data...</span>
+                </div>
+              ) : riwayatData.length === 0 ? (
+                <div className="text-center py-16 bg-white border border-gray-200 rounded-2xl">
+                  <div className="text-6xl mb-4">📭</div>
+                  <h3 className="text-xl font-bold text-gray-700">Tidak Ada Riwayat</h3>
+                  <p className="text-gray-500 mt-2">Belum ada aktivitas tap kartu pada bulan ini.</p>
+                </div>
+              ) : (
+                <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-sm">
+                          <th className="px-6 py-4 font-bold">Waktu (WIB)</th>
+                          <th className="px-6 py-4 font-bold">UID</th>
+                          <th className="px-6 py-4 font-bold">Nama / Keterangan</th>
+                          <th className="px-6 py-4 font-bold">Role</th>
+                          <th className="px-6 py-4 font-bold">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {riwayatData.map((log) => (
+                          <tr key={log.id} className="hover:bg-gray-50/50 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">
+                              {new Date(log.created_at).toLocaleString('id-ID')}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">
+                              {log.uid}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-800 font-semibold">
+                              {log.name}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                log.role === 'Dosen' ? 'bg-blue-100 text-blue-700' :
+                                log.role === 'Mahasiswa' ? 'bg-green-100 text-green-700' :
+                                log.role === 'Tamu' ? 'bg-orange-100 text-orange-700' :
+                                'bg-gray-100 text-gray-700'
+                              }`}>
+                                {log.role}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {log.status === 'SUCCESS' ? (
+                                <span className="flex items-center gap-1 text-emerald-600 font-bold text-sm">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg> Berhasil
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-red-600 font-bold text-sm">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg> Ditolak
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+{/* Save Footer */}
+          {activeTab !== 'riwayat' && (
           <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-between">
             <div className="text-sm">
               {showSuccess && (
@@ -902,7 +956,7 @@ export default function AdminDashboard() {
               ) : 'Simpan Semua'}
             </button>
           </div>
-
+          )}
         </div>
       </div>
 

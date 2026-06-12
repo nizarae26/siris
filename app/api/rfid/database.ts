@@ -22,6 +22,7 @@ export interface Content {
     room: string;
     dosenPresent: string[];
   };
+  dosenSchedule?: any[]; // Menyimpan array jadwal dosen untuk semester ini
 }
 
 export interface ScanLog {

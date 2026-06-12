@@ -35,74 +35,130 @@ const roleContent: Record<Role, Content> = {
   }
 };
 
-// Next.js hot-reloading can cause multiple instances of SerialPort and EventEmitters.
 const globalForSerial = globalThis as unknown as { 
   serialEmitter?: EventEmitter;
   serialPortInitialized?: boolean;
+  hardwareStatus?: string;
+  hardwareError?: string | null;
 };
 
 const serialEmitter = globalForSerial.serialEmitter || new EventEmitter();
 if (!globalForSerial.serialEmitter) {
   globalForSerial.serialEmitter = serialEmitter;
+  globalForSerial.hardwareStatus = 'Disconnected';
+  globalForSerial.hardwareError = null;
 }
 
 // Helper to process the UID logic and broadcast to connected clients
 async function processScan(uid: string) {
-  // Ambil pengaturan terbaru dari Supabase
-  const { data: mkData } = await supabase.from('settings').select('data').eq('id', 1).single();
-  const { data: tamuData } = await supabase.from('settings').select('data').eq('id', 2).single();
-  const { data: jadwalData } = await supabase.from('settings').select('data').eq('id', 3).single();
-  const { data: usersData } = await supabase.from('settings').select('data').eq('id', 4).single();
+  // Ambil pengaturan terbaru dari Supabase (diurutkan dari yang paling baru karena upsert bisa membuat row ganda jika PK belum diset)
+  // Tambahkan .lt('id', 1000 + Date.now()) untuk menipu Next.js cache agar tidak menyimpan respon secara global!
+  const ts = 1000 + Date.now();
+  const { data: mkRows } = await supabase.from('settings').select('data').eq('id', 1).lt('id', ts).order('created_at', { ascending: false }).limit(1);
+  const { data: tamuRows } = await supabase.from('settings').select('data').eq('id', 2).lt('id', ts).order('created_at', { ascending: false }).limit(1);
+  const { data: jadwalRows } = await supabase.from('settings').select('data').eq('id', 3).lt('id', ts).order('created_at', { ascending: false }).limit(1);
+  const { data: usersRows } = await supabase.from('settings').select('data').eq('id', 4).lt('id', ts).order('created_at', { ascending: false }).limit(1);
+
+  const mkData = mkRows?.[0];
+  const tamuData = tamuRows?.[0];
+  const jadwalData = jadwalRows?.[0];
+  const usersData = usersRows?.[0];
 
   const registeredUsers = usersData?.data || mockUsers;
-  const user = registeredUsers.find((u: any) => u.uid === uid);
+  
+  // Bersihkan UID dari spasi, strip, atau titik dua agar kebal dari kesalahan ketik
+  const cleanIncomingUid = uid.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  
+  console.log(`[DEBUG] Incoming UID: ${cleanIncomingUid}`);
+  console.log(`[DEBUG] registeredUsers total: ${registeredUsers.length}`);
+  if (registeredUsers.length > 0) {
+    console.log(`[DEBUG] First registered user UID: ${registeredUsers[0].uid}`);
+  }
+
+  const user = registeredUsers.find((u: any) => {
+    const cleanDbUid = (u.uid || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    return cleanDbUid === cleanIncomingUid;
+  });
+
+  if (user) {
+    console.log(`[DEBUG] USER MATCHED! Name: ${user.name}`);
+  } else {
+    console.log(`[DEBUG] USER NOT MATCHED! Falling back to Tamu.`);
+  }
+  
   let result;
 
   if (user) {
     let content = { ...roleContent[user.role as Role] };
     
-    // Hitung minggu berjalan (1-16)
-    let activeWeek = 1;
-    if (jadwalData?.data?.manualWeekOverride) {
-      activeWeek = jadwalData.data.manualWeekOverride;
-    } else if (jadwalData?.data?.startDate) {
-      // Perhitungan otomatis berdasarkan tanggal mulai
-      const start = new Date(jadwalData.data.startDate);
-      const now = new Date();
-      const diffTime = now.getTime() - start.getTime();
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)); 
-      activeWeek = Math.floor(diffDays / 7) + 1;
-      if (activeWeek < 1) activeWeek = 1;
-      if (activeWeek > 16) activeWeek = 16;
+    // Sesuaikan pesan "Selamat datang" dengan nama asli dari database
+    if (user.role === 'Dosen') {
+      content.info = `Selamat datang, ${user.name}. Berikut adalah video pembelajaran untuk sesi hari ini:`;
+    } else if (user.role === 'Mahasiswa') {
+      content.info = `Selamat datang, ${user.name}. Pastikan untuk mengisi daftar hadir dan mengikuti modul praktikum.`;
     }
     
-    // Tentukan hari ini
-    const hariIndex = new Date().getDay(); // 0 = Minggu, 1 = Senin, ...
-    const namaHari = ['minggu', 'senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu'][hariIndex];
+    // Data jadwal lama sudah tidak menggunakan minggu, langsung menggunakan semesterSchedule
+    // Tentukan hari ini (Capitalized: Senin, Selasa...)
+    const hariIndex = new Date().getDay(); 
+    const hariMap = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const namaHari = hariMap[hariIndex];
     
-    // Cari jadwal hari ini pada minggu aktif
-    const jadwalMingguIni = jadwalData?.data?.weeks?.[activeWeek] || [];
-    const jadwalHariIni = jadwalMingguIni.find((j: any) => j.id === namaHari);
+    // Ambil jadwal semester
+    const semesterSchedule = jadwalData?.data?.semesterSchedule || [];
     
-    if ((user.role === 'Dosen' || user.role === 'Mahasiswa') && jadwalHariIni && mkData?.data) {
-      const activeMk = mkData.data.find((mk: any) => mk.id === jadwalHariIni.mkId);
-      if (activeMk) {
-        const activePemb = activeMk.pembelajaran.find((p: any) => p.id === jadwalHariIni.pembId);
-        if (activePemb?.videoUrl) {
-          content.mediaUrl = activePemb.videoUrl;
-          content.mediaType = 'video';
-          content.title = activeMk.nama;
-          content.info = `Materi: ${activePemb.judul}`;
-          if (user.role === 'Mahasiswa') {
-             content.labInfo = { room: 'Lab Utama', dosenPresent: [jadwalHariIni.dosen || 'Dosen Pengampu'] };
-          }
-        }
+    if (user.role === 'Dosen') {
+      // Dosen: Video general milik dosen sendiri
+      if ((user as any).videoUrl) {
+        content.mediaUrl = (user as any).videoUrl;
+        content.mediaType = 'video';
+      } else {
+        content.mediaUrl = '';
+        content.mediaType = 'none';
       }
-    } else if ((user.role === 'Dosen' || user.role === 'Mahasiswa') && mkData?.data?.[0]?.pembelajaran?.[0]?.videoUrl) {
-      // Fallback jika tidak ada jadwal hari ini
-      content.mediaUrl = mkData.data[0].pembelajaran[0].videoUrl;
-      content.mediaType = 'video';
-      content.info = 'Materi Default (Tidak ada jadwal aktif hari ini)';
+      content.title = `Portal Dosen: ${user.name}`;
+      content.info = 'Jadwal Mengajar Anda Semester Ini';
+      
+      // Ambil SEMUA jadwal dosen ini (semua hari)
+      const jadwalDosen = semesterSchedule.filter((j: any) => j.dosen === user.name);
+      
+      // Kirim jadwal penuh melalui field dosenSchedule
+      content.dosenSchedule = jadwalDosen.map((j: any) => {
+        const mk = mkData?.data?.find((m: any) => m.id === j.mkId);
+        return {
+          ...j,
+          namaMk: mk ? mk.nama : 'Mata Kuliah Tidak Diketahui'
+        };
+      });
+      
+      // Hapus labInfo agar UI bisa merender tabel khusus
+      delete content.labInfo;
+
+    } else if (user.role === 'Mahasiswa') {
+      // Cari jadwal HARI INI yang sesuai dengan jam sekarang? 
+      // Atau sekedar jadwal pertama hari ini?
+      const jadwalHariIni = semesterSchedule.filter((j: any) => j.hari === namaHari);
+      const jadwalAktif = jadwalHariIni[0]; // Ambil sesi pertama (sementara)
+
+      if (jadwalAktif && mkData?.data) {
+        const activeMk = mkData.data.find((mk: any) => mk.id === jadwalAktif.mkId);
+        if (activeMk) {
+          content.mediaUrl = activeMk.videoUrl || ''; // Ambil video MK
+          content.mediaType = content.mediaUrl ? 'video' : 'none';
+          content.title = activeMk.nama;
+          content.info = `Sesi Aktif: ${jadwalAktif.waktuMulai} - ${jadwalAktif.waktuSelesai}`;
+          
+          content.labInfo = {
+            room: jadwalAktif.ruangan || 'Online',
+            dosenPresent: [jadwalAktif.dosen || 'Dosen Pengampu']
+          };
+        }
+      } else {
+        // Fallback jika tidak ada jadwal aktif
+        content.mediaType = 'none';
+        content.info = 'Tidak ada jadwal aktif untuk saat ini';
+        content.labInfo = { room: 'Ruang Mandiri', dosenPresent: ['Tidak ada jadwal aktif'] };
+      }
     }
 
     addLog({ uid, name: user.name, role: user.role, status: 'SUCCESS' });
@@ -138,25 +194,91 @@ if (!globalForSerial.serialPortInitialized) {
   initCronJobs();
   
   try {
-    const port = new SerialPort({ path: 'COM3', baudRate: 9600 }, (err) => {
+    const comPort = process.env.RFID_COM_PORT || 'COM13';
+    globalForSerial.hardwareStatus = `Connecting to ${comPort}...`;
+    
+    const port = new SerialPort({ path: comPort, baudRate: 115200 }, (err) => {
       if (err) {
-        console.warn('⚠️ SerialPort Error (Hardware disconnected?):', err.message);
-      } else {
-        console.log('✅ SerialPort connected on COM3');
+        console.warn(`⚠️ SerialPort Error on ${comPort}:`, err.message);
+        globalForSerial.hardwareStatus = 'COM Port Error';
+        globalForSerial.hardwareError = err.message;
+        return;
+      }
+      console.log(`✅ SerialPort connected on ${comPort} (Mode: RAW UART PN532)`);
+      globalForSerial.hardwareStatus = 'Port Connected, Waking PN532...';
+
+      // 1. Wake Up PN532 & Get Firmware Version
+      const wakeup = Buffer.from([
+        0x55, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xFF, 0x03, 0xFD, 0xD4, 0x14, 0x01, 0x17, 0x00
+      ]);
+      port.write(wakeup);
+
+      setTimeout(() => {
+        globalForSerial.hardwareStatus = 'Ready';
+        globalForSerial.hardwareError = null;
+        console.log('✅ PN532 is Ready! Starting poll loop...');
+        
+        // Polling Command: InListPassiveTarget (Baca Kartu)
+        const readCmd = Buffer.from([
+          0x00, 0x00, 0xFF, 0x04, 0xFC, 0xD4, 0x4A, 0x01, 0x00, 0xE1, 0x00
+        ]);
+
+        setInterval(() => {
+          if (port.isOpen) {
+            port.write(readCmd);
+          }
+        }, 500); // Polling setiap 500ms
+      }, 1000);
+    });
+
+    let buffer = Buffer.alloc(0);
+    let lastReadTime = 0;
+
+    port.on('data', (data: Buffer) => {
+      buffer = Buffer.concat([buffer, data]);
+      
+      // Batasi ukuran buffer agar tidak bocor memorinya
+      if (buffer.length > 1024) {
+        buffer = buffer.slice(buffer.length - 1024);
+      }
+
+      // Cari pola jawaban InListPassiveTarget: D5 4B 01 01 (Sukses baca 1 kartu)
+      const pattern = Buffer.from([0xD5, 0x4B, 0x01, 0x01]);
+      const idx = buffer.indexOf(pattern);
+
+      if (idx !== -1 && buffer.length >= idx + 9) {
+        // Kartu terdeteksi!
+        const uidLength = buffer[idx + 7];
+        
+        if (buffer.length >= idx + 8 + uidLength) {
+          const uidBuf = buffer.slice(idx + 8, idx + 8 + uidLength);
+          const uidHex = uidBuf.toString('hex').toUpperCase();
+          
+          // Bersihkan buffer agar tidak terbaca berulang
+          buffer = Buffer.alloc(0);
+
+          // Beri jeda 2 detik (debounce) sebelum baca kartu yang sama lagi
+          const now = Date.now();
+          if (now - lastReadTime > 2000) {
+            lastReadTime = now;
+            console.log(`[RAW PN532 Scan] Kartu Ditemukan! UID: ${uidHex}`);
+            processScan(uidHex);
+          }
+        }
       }
     });
 
-    const parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }));
-
-    parser.on('data', (data: string) => {
-      const uid = data.trim();
-      if (uid) {
-        console.log(`[RFID Scan] Received UID: ${uid}`);
-        processScan(uid);
-      }
+    port.on('error', (err: any) => {
+      globalForSerial.hardwareStatus = 'Serial Error';
+      globalForSerial.hardwareError = err.message;
     });
-  } catch (error) {
-    console.warn('⚠️ Failed to initialize SerialPort:', error);
+
+  } catch (error: any) {
+    console.warn('⚠️ Failed to initialize RAW PN532:', error);
+    globalForSerial.hardwareStatus = 'Initialization Failed';
+    globalForSerial.hardwareError = String(error);
   }
 }
 
@@ -164,6 +286,14 @@ if (!globalForSerial.serialPortInitialized) {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const uid = searchParams.get('uid');
+  const action = searchParams.get('action');
+  
+  if (action === 'status') {
+    return NextResponse.json({
+      status: globalForSerial.hardwareStatus || 'Unknown',
+      error: globalForSerial.hardwareError || null
+    });
+  }
   
   const acceptHeader = request.headers.get('accept');
 

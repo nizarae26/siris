@@ -74,19 +74,17 @@ export function initCronJobs() {
       console.log(`✅ File Excel berhasil disimpan: ${filePath}`);
 
       // 4. Hapus semua data yang sudah diexport dari database
-      // Kita menghapus berdasarkan id yang ada di array
+      // Fitur ini dinonaktifkan agar riwayat tetap bisa dilihat dari Admin Panel web.
+      /*
       const idsToDelete = logs.map(l => l.id);
-      
-      // Supabase tidak bisa menghapus array sangat besar sekaligus jika ribuan baris,
-      // Tapi untuk skala kecil-menengah ini aman. Jika error, gunakan filter in.
       const { error: deleteError } = await supabase
         .from('scan_logs')
         .delete()
         .in('id', idsToDelete);
         
       if (deleteError) throw deleteError;
-      
       console.log(`✅ ${idsToDelete.length} riwayat scan berhasil dihapus dari Database.`);
+      */
 
     } catch (error) {
       console.error('❌ Gagal menjalankan Rekap Bulanan:', error);
