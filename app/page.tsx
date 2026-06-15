@@ -211,26 +211,7 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* Lab Info (Mahasiswa only) */}
-              {activeContent.labInfo && !activeContent.dosenSchedule && (
-                <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-xl animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-                  <div className="flex items-center gap-4 mb-4">
-                    <span className="flex h-4 w-4 relative">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
-                    </span>
-                    <h4 className="text-white font-bold text-xl tracking-wide">Sesi Aktif: {activeContent.labInfo.room}</h4>
-                  </div>
-                  <p className="text-gray-300 text-sm mb-3">Dosen Pengampu:</p>
-                  <div className="flex flex-wrap gap-3">
-                    {activeContent.labInfo.dosenPresent.map((dosen, i) => (
-                      <span key={i} className="bg-white/10 border border-white/20 text-white px-4 py-2 rounded-xl text-sm font-semibold backdrop-blur-md flex items-center gap-2">
-                        👨‍🏫 {dosen}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+
 
             </div>
           ) : (
@@ -323,11 +304,7 @@ export default function Dashboard() {
                   )}
                 </div>
 
-                {/* Fake Barcode */}
-                <div className="mt-8 pt-4 border-t border-white/10 opacity-50 flex flex-col items-center">
-                  <div className="w-full h-10 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiNmZmYiLz48ZyBmaWxsPSIjMDAwIj48cmVjdCB4PSI1JSIgd2lkdGg9IjIlIiBoZWlnaHQ9IjEwMCUiLz48cmVjdCB4PSIxMCUiIHdpZHRoPSIxJSIgaGVpZ2h0PSIxMDAlIi8+PHJlY3QgeD0iMTUlIiB3aWR0aD0iMyUiIGhlaWdodD0iMTAwJSIvPjxyZWN0IHg9IjIyJSIgd2lkdGg9IjElIiBoZWlnaHQ9IjEwMCUiLz48cmVjdCB4PSIyNyUiIHdpZHRoPSI0JSIgaGVpZ2h0PSIxMDAlIi8+PHJlY3QgeD0iMzUlIiB3aWR0aD0iMiUiIGhlaWdodD0iMTAwJSIvPjxyZWN0IHg9IjQwJSIgd2lkdGg9IjElIiBoZWlnaHQ9IjEwMCUiLz48cmVjdCB4PSI0NSUiIHdpZHRoPSIzJSIgaGVpZ2h0PSIxMDAlIi8+PHJlY3QgeD0iNTUlIiB3aWR0aD0iMiUiIGhlaWdodD0iMTAwJSIvPjxyZWN0IHg9IjYwJSIgd2lkdGg9IjElIiBoZWlnaHQ9IjEwMCUiLz48cmVjdCB4PSI2NSUiIHdpZHRoPSI0JSIgaGVpZ2h0PSIxMDAlIi8+PHJlY3QgeD0iNzUlIiB3aWR0aD0iMiUiIGhlaWdodD0iMTAwJSIvPjxyZWN0IHg9IjgyJSIgd2lkdGg9IjElIiBoZWlnaHQ9IjEwMCUiLz48cmVjdCB4PSI4NyUiIHdpZHRoPSIzJSIgaGVpZ2h0PSIxMDAlIi8+PHJlY3QgeD0iOTUlIiB3aWR0aD0iMiUiIGhlaWdodD0iMTAwJSIvPjwvZz48L3N2Zz4=')] bg-repeat-x bg-contain rounded-sm mix-blend-screen invert"></div>
-                  <p className="font-mono text-[10px] mt-1 tracking-widest text-white/50">{activeUser.uid}</p>
-                </div>
+
               </div>
             </div>
           )}
