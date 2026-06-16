@@ -164,7 +164,7 @@ async function processScan(uid: string) {
           }
           
           content.title = `Portal Mahasiswa: ${user.name}`;
-          content.info = `Sesi Aktif: ${activeMk.nama} (${jadwalAktif.waktuMulai} - ${jadwalAktif.waktuSelesai})`;
+          content.info = '';
           
           content.labInfo = {
             room: jadwalAktif.ruangan || 'Online',
@@ -175,7 +175,7 @@ async function processScan(uid: string) {
         // Fallback jika tidak ada jadwal aktif
         content.title = `Portal Mahasiswa: ${user.name}`;
         content.mediaType = 'none';
-        content.info = 'Tidak ada jadwal aktif untuk saat ini';
+        content.info = '';
         content.labInfo = { room: 'Ruang Mandiri', dosenPresent: ['Tidak ada jadwal aktif'] };
       }
     } else if (user.role === 'Tamu') {
