@@ -89,7 +89,7 @@ async function processScan(uid: string) {
   let result;
 
   if (user) {
-    let content = { ...roleContent[user.role as Role] };
+    const content = { ...roleContent[user.role as Role] };
     
     // Sesuaikan pesan "Selamat datang" dengan nama asli dari database
     if (user.role === 'Dosen') {
@@ -108,19 +108,29 @@ async function processScan(uid: string) {
     const semesterSchedule = jadwalData?.data?.semesterSchedule || [];
     
     if (user.role === 'Dosen') {
-      // Dosen: Video general milik dosen sendiri
-      if ((user as any).videoUrl) {
-        content.mediaUrl = (user as any).videoUrl;
-        content.mediaType = 'video';
-      } else {
-        content.mediaUrl = '';
-        content.mediaType = 'none';
-      }
       content.title = `Portal Dosen: ${user.name}`;
       content.info = 'Jadwal Mengajar Anda Semester Ini';
       
       // Ambil SEMUA jadwal dosen ini (semua hari)
       const jadwalDosen = semesterSchedule.filter((j: any) => j.dosen === user.name);
+      
+      // Get unique MK IDs taught by this dosen
+      const uniqueMkIds = [...new Set(jadwalDosen.map((j: any) => j.mkId))];
+      if (uniqueMkIds.length > 0 && mkData?.data) {
+        // Randomly pick one MK
+        const randomMkId = uniqueMkIds[Math.floor(Math.random() * uniqueMkIds.length)];
+        const randomMk = mkData.data.find((m: any) => m.id === randomMkId);
+        if (randomMk && randomMk.videoUrl) {
+          content.mediaUrl = randomMk.videoUrl;
+          content.mediaType = 'video';
+        } else {
+          content.mediaUrl = '';
+          content.mediaType = 'none';
+        }
+      } else {
+        content.mediaUrl = '';
+        content.mediaType = 'none';
+      }
       
       // Kirim jadwal penuh melalui field dosenSchedule
       content.dosenSchedule = jadwalDosen.map((j: any) => {
@@ -143,8 +153,17 @@ async function processScan(uid: string) {
       if (jadwalAktif && mkData?.data) {
         const activeMk = mkData.data.find((mk: any) => mk.id === jadwalAktif.mkId);
         if (activeMk) {
-          content.mediaUrl = activeMk.videoUrl || ''; // Ambil video MK
-          content.mediaType = content.mediaUrl ? 'video' : 'none';
+          // Cari video profil dosen yang mengajar
+          const dosenUser = registeredUsers.find((u: any) => u.role === 'Dosen' && u.name === jadwalAktif.dosen);
+          
+          if (dosenUser && dosenUser.videoUrl) {
+            content.mediaUrl = dosenUser.videoUrl;
+            content.mediaType = 'video';
+          } else {
+            content.mediaUrl = '';
+            content.mediaType = 'none';
+          }
+          
           content.title = activeMk.nama;
           content.info = `Sesi Aktif: ${jadwalAktif.waktuMulai} - ${jadwalAktif.waktuSelesai}`;
           
@@ -174,7 +193,7 @@ async function processScan(uid: string) {
     supabase.from('scan_logs').insert({ uid, name: user.name, role: user.role, status: 'SUCCESS' }).then();
   } else {
     const tamuRole: Role = 'Tamu';
-    let content = { ...roleContent[tamuRole] };
+    const content = { ...roleContent[tamuRole] };
     
     // Gunakan video tamu dari admin
     if (tamuData?.data?.videoUrl) {

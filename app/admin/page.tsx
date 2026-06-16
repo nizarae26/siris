@@ -51,6 +51,8 @@ export interface UserData {
   instansi?: string;
   videoType?: VideoType;
   videoUrl?: string;
+  fileName?: string;
+  fileObj?: File;
 }
 
 interface JadwalConfigData {
@@ -202,11 +204,11 @@ useEffect(() => {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      let updatedMataKuliahList = [...mataKuliahList];
+      const updatedMataKuliahList = [...mataKuliahList];
 
       // Process uploads for MataKuliah
       for (let i = 0; i < updatedMataKuliahList.length; i++) {
-        let mk = { ...updatedMataKuliahList[i] };
+        const mk = { ...updatedMataKuliahList[i] };
         if (mk.videoType === 'upload' && mk.fileObj) {
           const fileName = `videos/${Date.now()}_${mk.fileObj.name.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
           const { error: uploadError } = await supabase.storage
@@ -222,7 +224,7 @@ useEffect(() => {
 
       // Process tamu upload
       let finalTamuUrl = tamuVideoUrl;
-      let finalTamuType = tamuVideoType;
+      const finalTamuType = tamuVideoType;
       
       if (tamuVideoType === 'upload' && tamuFileObj) {
         const fileName = `videos/tamu_${Date.now()}_${tamuFileObj.name.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
@@ -257,12 +259,31 @@ useEffect(() => {
         .upsert({ id: 3, data: jadwalConfig });
       if (jadwalError) throw jadwalError;
 
+      // Process uploads for Users (Dosen videos)
+      const updatedUsersList = [...usersList];
+      for (let i = 0; i < updatedUsersList.length; i++) {
+        const u = { ...updatedUsersList[i] };
+        if (u.role === 'Dosen' && u.videoType === 'upload' && u.fileObj) {
+          const fileName = `videos/dosen_${Date.now()}_${u.fileObj.name.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
+          const { error: uploadError } = await supabase.storage
+            .from('rfid-assets')
+            .upload(fileName, u.fileObj, { cacheControl: '3600', upsert: true });
+          if (uploadError) throw uploadError;
+          const { data: publicUrlData } = supabase.storage.from('rfid-assets').getPublicUrl(fileName);
+          u.videoUrl = publicUrlData.publicUrl;
+          delete u.fileObj;
+          delete u.fileName;
+        }
+        updatedUsersList[i] = u;
+      }
+
       const { error: usersError } = await supabase
         .from('settings')
-        .upsert({ id: 4, data: usersList });
+        .upsert({ id: 4, data: updatedUsersList });
       if (usersError) throw usersError;
 
       setMataKuliahList(updatedMataKuliahList);
+      setUsersList(updatedUsersList);
       setLastScannedUid(''); // Hapus alert kartu baru setelah berhasil disimpan
       setShowSuccess(true);
       ModernSwal.fire({
@@ -844,10 +865,64 @@ useEffect(() => {
                       )}
 
                       {user.role === 'Dosen' && (
-                        <div>
-                          <label className="block text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">NIP</label>
-                          <input type="text" value={user.nip || ''} onChange={(e) => setUsersList(prev => prev.map((u, i) => i === idx ? { ...u, nip: e.target.value } : u))} className="w-full px-4 py-2 bg-blue-50/30 border border-blue-100 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Masukkan NIP..." />
-                        </div>
+                        <>
+                          <div>
+                            <label className="block text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">NIP</label>
+                            <input type="text" value={user.nip || ''} onChange={(e) => setUsersList(prev => prev.map((u, i) => i === idx ? { ...u, nip: e.target.value } : u))} className="w-full px-4 py-2 bg-blue-50/30 border border-blue-100 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Masukkan NIP..." />
+                          </div>
+                          <div className="col-span-1 md:col-span-2 lg:col-span-3 mt-2">
+                            <label className="block text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">Video Profil Dosen</label>
+                            <div className="flex gap-2 mb-3 p-1 bg-blue-50/50 border border-blue-100 rounded-lg w-max">
+                              <button 
+                                onClick={() => setUsersList(prev => prev.map((u, i) => i === idx ? { ...u, videoType: 'youtube' } : u))}
+                                className={`px-4 py-1 text-xs font-bold rounded-md transition-all ${user.videoType === 'youtube' || !user.videoType ? 'bg-blue-100 text-blue-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                              >
+                                YouTube Link
+                              </button>
+                              <button 
+                                onClick={() => setUsersList(prev => prev.map((u, i) => i === idx ? { ...u, videoType: 'upload' } : u))}
+                                className={`px-4 py-1 text-xs font-bold rounded-md transition-all ${user.videoType === 'upload' ? 'bg-blue-100 text-blue-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                              >
+                                Upload File
+                              </button>
+                            </div>
+                            
+                            {(user.videoType === 'youtube' || !user.videoType) ? (
+                              <input 
+                                type="text"
+                                value={user.videoUrl || ''}
+                                onChange={(e) => setUsersList(prev => prev.map((u, i) => i === idx ? { ...u, videoUrl: e.target.value } : u))}
+                                className="w-full px-4 py-2 bg-blue-50/30 border border-blue-100 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="https://www.youtube.com/embed/..."
+                              />
+                            ) : (
+                              <div className="border-2 border-dashed border-blue-200 bg-white rounded-xl p-4 text-center hover:bg-blue-50 transition-colors relative">
+                                <input 
+                                  type="file" 
+                                  accept="video/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      setUsersList(prev => prev.map((u, i) => i === idx ? {
+                                        ...u,
+                                        fileObj: file,
+                                        fileName: file.name,
+                                        videoUrl: URL.createObjectURL(file)
+                                      } : u));
+                                    }
+                                  }}
+                                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                                />
+                                <div className="flex flex-col items-center gap-1">
+                                  <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                                  <span className="text-xs font-medium text-gray-600">
+                                    {user.fileName ? user.fileName : (user.videoUrl && user.videoUrl.startsWith('http') ? 'Video terunggah (Ganti video)' : 'Klik atau seret video ke sini')}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </>
                       )}
                     </div>
                   </div>
