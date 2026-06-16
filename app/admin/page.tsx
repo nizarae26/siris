@@ -84,7 +84,7 @@ export default function AdminDashboard() {
     }
   ]);
 
-  const [activeTab, setActiveTab] = useState<'matakuliah' | 'tamu' | 'jadwal' | 'users' | 'riwayat'>('matakuliah');
+  const [activeTab, setActiveTab] = useState<'matakuliah' | 'tamu' | 'mahasiswa' | 'jadwal' | 'users' | 'riwayat'>('matakuliah');
   const [jadwalConfig, setJadwalConfig] = useState<JadwalConfigData>({
     semesterSchedule: []
   });
@@ -101,7 +101,11 @@ export default function AdminDashboard() {
   const [tamuFileName, setTamuFileName] = useState('');
   const [tamuFileObj, setTamuFileObj] = useState<File | null>(null);
 
-  
+  // Mahasiswa state
+  const [mahasiswaVideoType, setMahasiswaVideoType] = useState<VideoType>('youtube');
+  const [mahasiswaVideoUrl, setMahasiswaVideoUrl] = useState('https://www.youtube.com/embed/EngW7tLk6R8');
+  const [mahasiswaFileName, setMahasiswaFileName] = useState('');
+  const [mahasiswaFileObj, setMahasiswaFileObj] = useState<File | null>(null);
   // Riwayat State
   const [riwayatData, setRiwayatData] = useState<any[]>([]);
   const [riwayatMonth, setRiwayatMonth] = useState<string>(new Date().toISOString().slice(0, 7));
@@ -169,16 +173,22 @@ useEffect(() => {
         const { data: tamuRows } = await supabase.from('settings').select('data').eq('id', 2).order('created_at', { ascending: false }).limit(1);
         const { data: jadwalRows } = await supabase.from('settings').select('data').eq('id', 3).order('created_at', { ascending: false }).limit(1);
         const { data: usersRows } = await supabase.from('settings').select('data').eq('id', 4).order('created_at', { ascending: false }).limit(1);
+        const { data: mahasiswaRows } = await supabase.from('settings').select('data').eq('id', 5).order('created_at', { ascending: false }).limit(1);
         
         const mkData = mkRows?.[0];
         const tamuData = tamuRows?.[0];
         const jadwalData = jadwalRows?.[0];
         const usersData = usersRows?.[0];
+        const mahasiswaData = mahasiswaRows?.[0];
         
         if (mkData?.data) setMataKuliahList(mkData.data);
         if (tamuData?.data) {
           setTamuVideoType(tamuData.data.videoType);
           setTamuVideoUrl(tamuData.data.videoUrl);
+        }
+        if (mahasiswaData?.data) {
+          setMahasiswaVideoType(mahasiswaData.data.videoType);
+          setMahasiswaVideoUrl(mahasiswaData.data.videoUrl);
         }
         if (jadwalData?.data) {
           const loadedData = jadwalData.data as JadwalConfigData;
@@ -253,6 +263,32 @@ useEffect(() => {
         .from('settings')
         .upsert({ id: 2, data: { videoType: finalTamuType, videoUrl: finalTamuUrl } });
       if (tamuError) throw tamuError;
+
+      // Process mahasiswa upload
+      let finalMahasiswaUrl = mahasiswaVideoUrl;
+      const finalMahasiswaType = mahasiswaVideoType;
+      
+      if (mahasiswaVideoType === 'upload' && mahasiswaFileObj) {
+        const fileName = `videos/mahasiswa_${Date.now()}_${mahasiswaFileObj.name.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
+        const { error: uploadError } = await supabase.storage
+          .from('rfid-assets')
+          .upload(fileName, mahasiswaFileObj, { cacheControl: '3600', upsert: true });
+
+        if (uploadError) throw uploadError;
+        
+        const { data: publicUrlData } = supabase.storage
+          .from('rfid-assets')
+          .getPublicUrl(fileName);
+
+        finalMahasiswaUrl = publicUrlData.publicUrl;
+        setMahasiswaFileObj(null); // Clean up
+        setMahasiswaVideoUrl(finalMahasiswaUrl);
+      }
+      
+      const { error: mahasiswaError } = await supabase
+        .from('settings')
+        .upsert({ id: 5, data: { videoType: finalMahasiswaType, videoUrl: finalMahasiswaUrl } });
+      if (mahasiswaError) throw mahasiswaError;
 
       const { error: jadwalError } = await supabase
         .from('settings')
@@ -395,6 +431,13 @@ useEffect(() => {
             className={`flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all ${activeTab === 'tamu' ? 'bg-orange-50 text-orange-700 border border-orange-100 shadow-sm' : 'text-gray-600 hover:bg-white border border-transparent'}`}
           >
             <span className="text-lg">🧳</span> Tamu Umum
+          </button>
+          
+          <button 
+            onClick={() => setActiveTab('mahasiswa')}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all ${activeTab === 'mahasiswa' ? 'bg-blue-50 text-blue-700 border border-blue-100 shadow-sm' : 'text-gray-600 hover:bg-white border border-transparent'}`}
+          >
+            <span className="text-lg">👨‍🎓</span> Mahasiswa
           </button>
           
           <button 
@@ -611,6 +654,75 @@ useEffect(() => {
                       <iframe className="w-full h-full" src={getYouTubeEmbedUrl(tamuVideoUrl)} frameBorder="0" allowFullScreen></iframe>
                     ) : (
                       <video className="w-full h-full object-cover" src={tamuVideoUrl} controls></video>
+                    )
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm bg-gray-100">No Preview</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'mahasiswa' && (
+            <div className="p-6 md:p-8 flex-grow">
+              <h2 className="text-2xl font-bold text-gray-800 mb-1">Video Profil Dosen (Mahasiswa)</h2>
+              <p className="text-gray-500 mb-8 text-sm">Kelola video profil dosen yang akan ditampilkan pada halaman mahasiswa ketika kartu mahasiswa di-tap.</p>
+              
+              <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-6 shadow-sm">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">Sumber Video</label>
+                <div className="flex gap-2 mb-4 p-1 bg-white border border-blue-200 rounded-lg w-max shadow-sm">
+                  <button 
+                    onClick={() => setMahasiswaVideoType('youtube')}
+                    className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${mahasiswaVideoType === 'youtube' ? 'bg-blue-100 text-blue-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    YouTube Link
+                  </button>
+                  <button 
+                    onClick={() => setMahasiswaVideoType('upload')}
+                    className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${mahasiswaVideoType === 'upload' ? 'bg-blue-100 text-blue-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Upload File
+                  </button>
+                </div>
+
+                {mahasiswaVideoType === 'youtube' ? (
+                  <input 
+                    type="text" 
+                    value={mahasiswaVideoUrl}
+                    onChange={(e) => setMahasiswaVideoUrl(e.target.value)}
+                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-sm mb-6"
+                    placeholder="https://www.youtube.com/embed/..."
+                  />
+                ) : (
+                  <div className="border-2 border-dashed border-blue-300 bg-white rounded-xl p-6 text-center hover:bg-blue-50 transition-colors relative mb-6">
+                    <input 
+                      type="file" 
+                      accept="video/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setMahasiswaFileObj(file);
+                          setMahasiswaFileName(file.name);
+                          setMahasiswaVideoUrl(URL.createObjectURL(file));
+                        }
+                      }}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                    />
+                    <div className="flex flex-col items-center gap-2">
+                      <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                      <span className="text-sm font-medium text-gray-600">
+                        {mahasiswaFileName ? mahasiswaFileName : 'Klik atau seret video ke sini'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="aspect-video w-full md:w-3/4 max-w-2xl rounded-xl overflow-hidden bg-black border border-gray-200">
+                  {mahasiswaVideoUrl ? (
+                    mahasiswaVideoType === 'youtube' ? (
+                      <iframe className="w-full h-full" src={getYouTubeEmbedUrl(mahasiswaVideoUrl)} frameBorder="0" allowFullScreen></iframe>
+                    ) : (
+                      <video className="w-full h-full object-cover" src={mahasiswaVideoUrl} controls></video>
                     )
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm bg-gray-100">No Preview</div>
@@ -865,64 +977,10 @@ useEffect(() => {
                       )}
 
                       {user.role === 'Dosen' && (
-                        <>
-                          <div>
-                            <label className="block text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">NIP</label>
-                            <input type="text" value={user.nip || ''} onChange={(e) => setUsersList(prev => prev.map((u, i) => i === idx ? { ...u, nip: e.target.value } : u))} className="w-full px-4 py-2 bg-blue-50/30 border border-blue-100 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Masukkan NIP..." />
-                          </div>
-                          <div className="col-span-1 md:col-span-2 lg:col-span-3 mt-2">
-                            <label className="block text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">Video Profil Dosen</label>
-                            <div className="flex gap-2 mb-3 p-1 bg-blue-50/50 border border-blue-100 rounded-lg w-max">
-                              <button 
-                                onClick={() => setUsersList(prev => prev.map((u, i) => i === idx ? { ...u, videoType: 'youtube' } : u))}
-                                className={`px-4 py-1 text-xs font-bold rounded-md transition-all ${user.videoType === 'youtube' || !user.videoType ? 'bg-blue-100 text-blue-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                              >
-                                YouTube Link
-                              </button>
-                              <button 
-                                onClick={() => setUsersList(prev => prev.map((u, i) => i === idx ? { ...u, videoType: 'upload' } : u))}
-                                className={`px-4 py-1 text-xs font-bold rounded-md transition-all ${user.videoType === 'upload' ? 'bg-blue-100 text-blue-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                              >
-                                Upload File
-                              </button>
-                            </div>
-                            
-                            {(user.videoType === 'youtube' || !user.videoType) ? (
-                              <input 
-                                type="text"
-                                value={user.videoUrl || ''}
-                                onChange={(e) => setUsersList(prev => prev.map((u, i) => i === idx ? { ...u, videoUrl: e.target.value } : u))}
-                                className="w-full px-4 py-2 bg-blue-50/30 border border-blue-100 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="https://www.youtube.com/embed/..."
-                              />
-                            ) : (
-                              <div className="border-2 border-dashed border-blue-200 bg-white rounded-xl p-4 text-center hover:bg-blue-50 transition-colors relative">
-                                <input 
-                                  type="file" 
-                                  accept="video/*"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) {
-                                      setUsersList(prev => prev.map((u, i) => i === idx ? {
-                                        ...u,
-                                        fileObj: file,
-                                        fileName: file.name,
-                                        videoUrl: URL.createObjectURL(file)
-                                      } : u));
-                                    }
-                                  }}
-                                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
-                                />
-                                <div className="flex flex-col items-center gap-1">
-                                  <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                                  <span className="text-xs font-medium text-gray-600">
-                                    {user.fileName ? user.fileName : (user.videoUrl && user.videoUrl.startsWith('http') ? 'Video terunggah (Ganti video)' : 'Klik atau seret video ke sini')}
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </>
+                        <div>
+                          <label className="block text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">NIP</label>
+                          <input type="text" value={user.nip || ''} onChange={(e) => setUsersList(prev => prev.map((u, i) => i === idx ? { ...u, nip: e.target.value } : u))} className="w-full px-4 py-2 bg-blue-50/30 border border-blue-100 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Masukkan NIP..." />
+                        </div>
                       )}
                     </div>
                   </div>

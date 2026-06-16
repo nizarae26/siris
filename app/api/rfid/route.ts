@@ -58,11 +58,13 @@ async function processScan(uid: string) {
   const { data: tamuRows } = await supabase.from('settings').select('data').eq('id', 2).lt('id', ts).order('created_at', { ascending: false }).limit(1);
   const { data: jadwalRows } = await supabase.from('settings').select('data').eq('id', 3).lt('id', ts).order('created_at', { ascending: false }).limit(1);
   const { data: usersRows } = await supabase.from('settings').select('data').eq('id', 4).lt('id', ts).order('created_at', { ascending: false }).limit(1);
+  const { data: mahasiswaRows } = await supabase.from('settings').select('data').eq('id', 5).lt('id', ts).order('created_at', { ascending: false }).limit(1);
 
   const mkData = mkRows?.[0];
   const tamuData = tamuRows?.[0];
   const jadwalData = jadwalRows?.[0];
   const usersData = usersRows?.[0];
+  const mahasiswaData = mahasiswaRows?.[0];
 
   const registeredUsers = usersData?.data || mockUsers;
   
@@ -153,11 +155,8 @@ async function processScan(uid: string) {
       if (jadwalAktif && mkData?.data) {
         const activeMk = mkData.data.find((mk: any) => mk.id === jadwalAktif.mkId);
         if (activeMk) {
-          // Cari video profil dosen yang mengajar
-          const dosenUser = registeredUsers.find((u: any) => u.role === 'Dosen' && u.name === jadwalAktif.dosen);
-          
-          if (dosenUser && dosenUser.videoUrl) {
-            content.mediaUrl = dosenUser.videoUrl;
+          if (mahasiswaData?.data?.videoUrl) {
+            content.mediaUrl = mahasiswaData.data.videoUrl;
             content.mediaType = 'video';
           } else {
             content.mediaUrl = '';
