@@ -163,8 +163,8 @@ async function processScan(uid: string) {
             content.mediaType = 'none';
           }
           
-          content.title = activeMk.nama;
-          content.info = `Sesi Aktif: ${jadwalAktif.waktuMulai} - ${jadwalAktif.waktuSelesai}`;
+          content.title = `Portal Mahasiswa: ${user.name}`;
+          content.info = `Sesi Aktif: ${activeMk.nama} (${jadwalAktif.waktuMulai} - ${jadwalAktif.waktuSelesai})`;
           
           content.labInfo = {
             room: jadwalAktif.ruangan || 'Online',
@@ -173,6 +173,7 @@ async function processScan(uid: string) {
         }
       } else {
         // Fallback jika tidak ada jadwal aktif
+        content.title = `Portal Mahasiswa: ${user.name}`;
         content.mediaType = 'none';
         content.info = 'Tidak ada jadwal aktif untuk saat ini';
         content.labInfo = { room: 'Ruang Mandiri', dosenPresent: ['Tidak ada jadwal aktif'] };
