@@ -125,11 +125,13 @@ export default function Dashboard() {
               
               {/* Media Player Glass Card */}
               <div className="bg-white/10 backdrop-blur-2xl border border-white/20 rounded-3xl p-2 shadow-2xl flex-grow flex flex-col">
-                <div className="px-6 py-4 flex items-center justify-between border-b border-white/10">
-                  <div>
-                    <h2 className="text-2xl font-bold text-white tracking-tight">{activeContent.title}</h2>
-                    <p className="text-gray-300 text-sm mt-1">{activeContent.info}</p>
-                  </div>
+                <div className={`px-6 py-4 flex items-center ${activeUser.role === 'Mahasiswa' ? 'justify-end' : 'justify-between'} border-b border-white/10`}>
+                  {activeUser.role !== 'Mahasiswa' && (
+                    <div>
+                      <h2 className="text-2xl font-bold text-white tracking-tight">{activeContent.title}</h2>
+                      <p className="text-gray-300 text-sm mt-1">{activeContent.info}</p>
+                    </div>
+                  )}
                   <span className="px-4 py-1.5 bg-white/10 border border-white/20 rounded-full text-xs font-bold text-white uppercase tracking-wider backdrop-blur-md">
                     {activeUser.role} Portal
                   </span>
