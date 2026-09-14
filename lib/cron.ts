@@ -6,9 +6,13 @@ import { supabase } from './supabase';
 
 const rekapDir = path.join(process.cwd(), 'rekap_bulanan');
 
-// Ensure directory exists
-if (!fs.existsSync(rekapDir)) {
-  fs.mkdirSync(rekapDir, { recursive: true });
+// Ensure directory exists (wrap in try-catch for Vercel Serverless environment)
+try {
+  if (!fs.existsSync(rekapDir)) {
+    fs.mkdirSync(rekapDir, { recursive: true });
+  }
+} catch (error) {
+  console.warn('⚠️ Tidak bisa membuat folder rekap_bulanan. Berjalan di lingkungan Serverless (Vercel).');
 }
 
 // Global flag to prevent multiple cron instances during hot-reloads
