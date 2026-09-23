@@ -219,7 +219,7 @@ if (!globalForSerial.serialPortInitialized) {
   initCronJobs();
   
   try {
-    const comPort = process.env.RFID_COM_PORT || 'COM13';
+    const comPort = process.env.RFID_COM_PORT || 'COM3';
     globalForSerial.hardwareStatus = `Connecting to ${comPort}...`;
     
     const port = new SerialPort({ path: comPort, baudRate: 115200 }, (err) => {
@@ -243,18 +243,24 @@ if (!globalForSerial.serialPortInitialized) {
       setTimeout(() => {
         globalForSerial.hardwareStatus = 'Ready';
         globalForSerial.hardwareError = null;
-        console.log('✅ PN532 is Ready! Starting poll loop...');
+        console.log('✅ PN532 is Ready! Starting single read command...');
         
         // Polling Command: InListPassiveTarget (Baca Kartu)
         const readCmd = Buffer.from([
           0x00, 0x00, 0xFF, 0x04, 0xFC, 0xD4, 0x4A, 0x01, 0x00, 0xE1, 0x00
         ]);
 
-        setInterval(() => {
+        const sendReadCommand = () => {
           if (port.isOpen) {
             port.write(readCmd);
           }
-        }, 500); // Polling setiap 500ms
+        };
+
+        // Simpan fungsi ke global agar bisa dipanggil ulang setelah kartu terbaca
+        (globalForSerial as any).sendReadCommand = sendReadCommand;
+
+        // Kirim perintah baca HANYA SEKALI. Modul akan menunggu sampai kartu didekatkan.
+        sendReadCommand();
       }, 1000);
     });
 
@@ -284,13 +290,21 @@ if (!globalForSerial.serialPortInitialized) {
           // Bersihkan buffer agar tidak terbaca berulang
           buffer = Buffer.alloc(0);
 
-          // Beri jeda 2 detik (debounce) sebelum baca kartu yang sama lagi
+          // Beri jeda (debounce) sebelum baca kartu yang sama/baru
           const now = Date.now();
           if (now - lastReadTime > 2000) {
             lastReadTime = now;
             console.log(`[RAW PN532 Scan] Kartu Ditemukan! UID: ${uidHex}`);
             processScan(uidHex);
           }
+          
+          // Setelah membaca, PN532 akan keluar dari mode pencarian. 
+          // Kita harus mengirim perintah baca (InListPassiveTarget) lagi setelah jeda pendek.
+          setTimeout(() => {
+            if ((globalForSerial as any).sendReadCommand) {
+              (globalForSerial as any).sendReadCommand();
+            }
+          }, 1000);
         }
       }
     });
