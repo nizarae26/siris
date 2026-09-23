@@ -212,11 +212,15 @@ async function processScan(uid: string) {
   return result;
 }
 
-if (!globalForSerial.serialPortInitialized) {
-  globalForSerial.serialPortInitialized = true;
-  
+if (!(globalForSerial as any).cronInitialized) {
+  (globalForSerial as any).cronInitialized = true;
   // Initialize Background Cron Jobs
   initCronJobs();
+}
+
+function initSerialPort() {
+  if (globalForSerial.serialPortInitialized) return;
+  globalForSerial.serialPortInitialized = true;
   
   try {
     const comPort = process.env.RFID_COM_PORT || 'COM3';
@@ -227,6 +231,7 @@ if (!globalForSerial.serialPortInitialized) {
         console.warn(`⚠️ SerialPort Error on ${comPort}:`, err.message);
         globalForSerial.hardwareStatus = 'COM Port Error';
         globalForSerial.hardwareError = err.message;
+        globalForSerial.serialPortInitialized = false; // Reset agar bisa retry
         return;
       }
       console.log(`✅ SerialPort connected on ${comPort} (Mode: RAW UART PN532)`);
@@ -290,21 +295,21 @@ if (!globalForSerial.serialPortInitialized) {
           // Bersihkan buffer agar tidak terbaca berulang
           buffer = Buffer.alloc(0);
 
-          // Beri jeda (debounce) sebelum baca kartu yang sama/baru
+          // Beri jeda (debounce) sebelum baca kartu
           const now = Date.now();
-          if (now - lastReadTime > 2000) {
+          if (now - lastReadTime > 5000) { // Jeda 5 detik antar scan
             lastReadTime = now;
             console.log(`[RAW PN532 Scan] Kartu Ditemukan! UID: ${uidHex}`);
             processScan(uidHex);
           }
           
           // Setelah membaca, PN532 akan keluar dari mode pencarian. 
-          // Kita harus mengirim perintah baca (InListPassiveTarget) lagi setelah jeda pendek.
+          // Jeda agak lama (3 detik) sebelum scanner aktif lagi untuk mencegah penumpukan
           setTimeout(() => {
             if ((globalForSerial as any).sendReadCommand) {
               (globalForSerial as any).sendReadCommand();
             }
-          }, 1000);
+          }, 3000);
         }
       }
     });
@@ -312,17 +317,33 @@ if (!globalForSerial.serialPortInitialized) {
     port.on('error', (err: any) => {
       globalForSerial.hardwareStatus = 'Serial Error';
       globalForSerial.hardwareError = err.message;
+      globalForSerial.serialPortInitialized = false; // Reset agar bisa retry
+    });
+
+    port.on('close', () => {
+      globalForSerial.hardwareStatus = 'Disconnected';
+      globalForSerial.hardwareError = 'Kabel tercabut atau port tertutup';
+      globalForSerial.serialPortInitialized = false; // Reset agar bisa retry
     });
 
   } catch (error: any) {
     console.warn('⚠️ Failed to initialize RAW PN532:', error);
     globalForSerial.hardwareStatus = 'Initialization Failed';
     globalForSerial.hardwareError = String(error);
+    globalForSerial.serialPortInitialized = false; // Reset agar bisa retry
   }
 }
 
+// Jalankan inisialisasi awal
+initSerialPort();
+
 // Next.js API Route Handler
 export async function GET(request: Request) {
+  // Coba inisialisasi ulang jika terputus (saat di-poll oleh halaman diagnostics)
+  if (!globalForSerial.serialPortInitialized) {
+    initSerialPort();
+  }
+
   const { searchParams } = new URL(request.url);
   const uid = searchParams.get('uid');
   const action = searchParams.get('action');
