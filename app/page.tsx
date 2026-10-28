@@ -23,22 +23,41 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    // Connect to Server-Sent Events (SSE) for real-time hardware updates
-    const eventSource = new EventSource('/api/rfid');
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
 
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setActiveUser(data.user);
-        setActiveContent(data.content);
-        setLogs(data.logs);
-      } catch (error) {
-        console.error('Error parsing SSE data:', error);
+    const connectSSE = () => {
+      if (eventSource) {
+        try { eventSource.close(); } catch {}
       }
+
+      eventSource = new EventSource('/api/rfid');
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          setActiveUser(data.user);
+          setActiveContent(data.content);
+          setLogs(data.logs);
+        } catch {
+          // ignore heartbeats
+        }
+      };
+
+      eventSource.onerror = () => {
+        try { eventSource?.close(); } catch {}
+        if (reconnectTimeout) clearTimeout(reconnectTimeout);
+        reconnectTimeout = setTimeout(connectSSE, 2000);
+      };
     };
 
+    connectSSE();
+
     return () => {
-      eventSource.close();
+      if (eventSource) {
+        try { eventSource.close(); } catch {}
+      }
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
   }, []);
 
@@ -145,6 +164,7 @@ export default function Dashboard() {
                           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.02]" 
                           src={getYouTubeEmbedUrl(activeContent.mediaUrl)} 
                           title="Video Player" 
+                          loading="lazy"
                           frameBorder="0" 
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
                           allowFullScreen>
@@ -154,6 +174,8 @@ export default function Dashboard() {
                           className="w-full h-full object-cover"
                           src={activeContent.mediaUrl}
                           autoPlay
+                          playsInline
+                          preload="metadata"
                           controls
                           onEnded={() => {
                             setActiveUser(null);

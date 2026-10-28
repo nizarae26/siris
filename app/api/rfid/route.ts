@@ -38,8 +38,14 @@ const roleContent: Record<Role, Content> = {
 const globalForSerial = globalThis as unknown as { 
   serialEmitter?: EventEmitter;
   serialPortInitialized?: boolean;
+
+  activePort?: SerialPort | null;
   hardwareStatus?: string;
   hardwareError?: string | null;
+  sendReadCommand?: () => void;
+  cronInitialized?: boolean;
+  keepAliveInitialized?: boolean;
+  settingsCache?: SettingsCache;
 };
 
 const serialEmitter = globalForSerial.serialEmitter || new EventEmitter();
@@ -49,22 +55,85 @@ if (!globalForSerial.serialEmitter) {
   globalForSerial.hardwareError = null;
 }
 
+// In-memory cache untuk settings Supabase agar pembacaan kartu instant (<10ms)
+interface SettingsCache {
+  mkData?: any;
+  tamuData?: any;
+  jadwalData?: any;
+  usersData?: any;
+  mahasiswaData?: any;
+  timestamp: number;
+}
+
+// Fungsi query Supabase dengan proteksi timeout 3 detik agar tidak pernah blocking
+async function fetchSettingsFromSupabase(): Promise<SettingsCache> {
+  const now = Date.now();
+  try {
+    const queryPromise = supabase
+      .from('settings')
+      .select('id, data, created_at')
+      .in('id', [1, 2, 3, 4, 5])
+      .order('created_at', { ascending: false });
+
+    // Timeout guard 3 detik untuk mencegah hang retransmisi TCP
+    const timeoutPromise = new Promise<{ data: null; error: any }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: new Error('Supabase fetch timeout (3s limit)') }), 3000)
+    );
+
+    const { data: rows, error } = await Promise.race([queryPromise, timeoutPromise]);
+
+    if (error || !rows) {
+      if (globalForSerial.settingsCache) return globalForSerial.settingsCache;
+      return { timestamp: now };
+    }
+
+    const findLatest = (id: number) => rows.find((r: any) => r.id === id);
+
+    const newCache: SettingsCache = {
+      mkData: findLatest(1),
+      tamuData: findLatest(2),
+      jadwalData: findLatest(3),
+      usersData: findLatest(4),
+      mahasiswaData: findLatest(5),
+      timestamp: now
+    };
+
+    globalForSerial.settingsCache = newCache;
+    return newCache;
+  } catch (err: any) {
+    if (globalForSerial.settingsCache) return globalForSerial.settingsCache;
+    return { timestamp: now };
+  }
+}
+
+// Background Keep-Alive: Ping & Segarkan Cache setiap 35 detik
+// Mencegah cloud NAT/firewall memutus koneksi TCP (Cold Socket) saat sistem idle
+if (!globalForSerial.keepAliveInitialized) {
+  globalForSerial.keepAliveInitialized = true;
+  // Pemanasan pertama kali
+  fetchSettingsFromSupabase().then(() => {
+    console.log('✅ [Supabase Keep-Alive] Initial cache warmed up!');
+  });
+
+  setInterval(() => {
+    fetchSettingsFromSupabase().catch(() => {});
+  }, 35000);
+}
+
+async function getLatestSettings(): Promise<SettingsCache> {
+  const now = Date.now();
+  // Jika cache sudah ada di memori dan berumur kurang dari 40 detik, langsung return instan (0ms)
+  if (globalForSerial.settingsCache && (now - globalForSerial.settingsCache.timestamp < 40000)) {
+    return globalForSerial.settingsCache;
+  }
+
+  // Jika cache belum ada atau kadaluarsa, ambil dan perbarui
+  return await fetchSettingsFromSupabase();
+}
+
 // Helper to process the UID logic and broadcast to connected clients
 async function processScan(uid: string) {
-  // Ambil pengaturan terbaru dari Supabase (diurutkan dari yang paling baru karena upsert bisa membuat row ganda jika PK belum diset)
-  // Tambahkan .lt('id', 1000 + Date.now()) untuk menipu Next.js cache agar tidak menyimpan respon secara global!
-  const ts = 1000 + Date.now();
-  const { data: mkRows } = await supabase.from('settings').select('data').eq('id', 1).lt('id', ts).order('created_at', { ascending: false }).limit(1);
-  const { data: tamuRows } = await supabase.from('settings').select('data').eq('id', 2).lt('id', ts).order('created_at', { ascending: false }).limit(1);
-  const { data: jadwalRows } = await supabase.from('settings').select('data').eq('id', 3).lt('id', ts).order('created_at', { ascending: false }).limit(1);
-  const { data: usersRows } = await supabase.from('settings').select('data').eq('id', 4).lt('id', ts).order('created_at', { ascending: false }).limit(1);
-  const { data: mahasiswaRows } = await supabase.from('settings').select('data').eq('id', 5).lt('id', ts).order('created_at', { ascending: false }).limit(1);
-
-  const mkData = mkRows?.[0];
-  const tamuData = tamuRows?.[0];
-  const jadwalData = jadwalRows?.[0];
-  const usersData = usersRows?.[0];
-  const mahasiswaData = mahasiswaRows?.[0];
+  const { mkData, tamuData, jadwalData, usersData, mahasiswaData } = await getLatestSettings();
 
   const registeredUsers = usersData?.data || mockUsers;
   
@@ -218,119 +287,184 @@ if (!(globalForSerial as any).cronInitialized) {
   initCronJobs();
 }
 
+let isOpeningPort = false;
+let lastOpenAttempt = 0;
+
 function initSerialPort() {
-  if (globalForSerial.serialPortInitialized) return;
-  globalForSerial.serialPortInitialized = true;
-  
+  const now = Date.now();
+  if (isOpeningPort) return;
+  if (now - lastOpenAttempt < 2000) return;
+  lastOpenAttempt = now;
+  isOpeningPort = true;
+
   try {
     const comPort = process.env.RFID_COM_PORT || 'COM3';
     globalForSerial.hardwareStatus = `Connecting to ${comPort}...`;
-    
-    const port = new SerialPort({ path: comPort, baudRate: 115200 }, (err) => {
-      if (err) {
-        console.warn(`⚠️ SerialPort Error on ${comPort}:`, err.message);
-        globalForSerial.hardwareStatus = 'COM Port Error';
+
+    const openConnection = () => {
+      const port = new SerialPort({ path: comPort, baudRate: 115200 }, (err) => {
+        isOpeningPort = false;
+        if (err) {
+          console.warn(`⚠️ SerialPort Error on ${comPort}:`, err.message);
+          globalForSerial.hardwareStatus = 'COM Port Error';
+          globalForSerial.hardwareError = err.message;
+          globalForSerial.serialPortInitialized = false;
+          return;
+        }
+        globalForSerial.activePort = port;
+        globalForSerial.serialPortInitialized = true;
+        console.log(`✅ SerialPort connected on ${comPort} (Mode: RAW UART PN532)`);
+        globalForSerial.hardwareStatus = 'Port Connected, Initializing PN532...';
+
+        // 1. Wake Up PN532 & SAMConfiguration
+        const wakeup = Buffer.from([
+          0x55, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0xFF, 0x03, 0xFD, 0xD4, 0x14, 0x01, 0x17, 0x00
+        ]);
+        port.write(wakeup);
+
+        setTimeout(() => {
+          globalForSerial.hardwareStatus = 'Ready';
+          globalForSerial.hardwareError = null;
+          console.log('✅ PN532 is Ready! Starting continuous polling loop...');
+          sendReadCommand();
+        }, 1000);
+      });
+
+      // InListPassiveTarget Command (Mencari 1 Kartu ISO14443A)
+      const readCmd = Buffer.from([
+        0x00, 0x00, 0xFF, 0x04, 0xFC, 0xD4, 0x4A, 0x01, 0x00, 0xE1, 0x00
+      ]);
+
+      let buffer = Buffer.alloc(0);
+      let lastReadTime = 0;
+      let lastUid = '';
+      let readTimer: NodeJS.Timeout | null = null;
+      let watchdogTimer: NodeJS.Timeout | null = null;
+
+      const scheduleNextRead = (delayMs: number = 50) => {
+        if (readTimer) clearTimeout(readTimer);
+        readTimer = setTimeout(() => {
+          sendReadCommand();
+        }, delayMs);
+      };
+
+      const sendReadCommand = () => {
+        if (!port.isOpen) return;
+
+        // Bersihkan sisa buffer sebelum kirim perintah baru
+        buffer = Buffer.alloc(0);
+
+        port.write(readCmd, (err) => {
+          if (err) {
+            console.warn('⚠️ Gagal mengirim readCmd ke PN532:', err.message);
+            scheduleNextRead(1000);
+            return;
+          }
+        });
+
+        // Watchdog: jika PN532 tidak merespon sama sekali dalam 2 detik, refresh perintah baca
+        if (watchdogTimer) clearTimeout(watchdogTimer);
+        watchdogTimer = setTimeout(() => {
+          if (port.isOpen) {
+            sendReadCommand();
+          }
+        }, 2000);
+      };
+
+      (globalForSerial as any).sendReadCommand = sendReadCommand;
+
+      port.on('data', (data: Buffer) => {
+        buffer = Buffer.concat([buffer, data]);
+        
+        // Batasi ukuran buffer agar tidak membesar
+        if (buffer.length > 1024) {
+          buffer = buffer.subarray(buffer.length - 512);
+        }
+
+        // 1. Cek respon berhasil membaca kartu: D5 4B 01 01
+        const patternCard = Buffer.from([0xD5, 0x4B, 0x01, 0x01]);
+        const cardIdx = buffer.indexOf(patternCard);
+
+        if (cardIdx !== -1 && buffer.length >= cardIdx + 9) {
+          const uidLength = buffer[cardIdx + 7];
+          
+          if (buffer.length >= cardIdx + 8 + uidLength) {
+            const uidBuf = buffer.subarray(cardIdx + 8, cardIdx + 8 + uidLength);
+            const uidHex = uidBuf.toString('hex').toUpperCase();
+            
+            buffer = Buffer.alloc(0);
+            if (watchdogTimer) clearTimeout(watchdogTimer);
+
+            const now = Date.now();
+            const isSameCard = (uidHex === lastUid);
+            const cooldown = isSameCard ? 3000 : 1000;
+
+            if (now - lastReadTime > cooldown) {
+              lastReadTime = now;
+              lastUid = uidHex;
+              console.log(`[RAW PN532 Scan] Kartu Ditemukan! UID: ${uidHex}`);
+              processScan(uidHex);
+            }
+            
+            // Jeda 1.2 detik setelah scan sebelum scanner aktif lagi
+            scheduleNextRead(1200);
+            return;
+          }
+        }
+
+        // 2. Cek respon PN532 timeout / tidak ada kartu: D5 4B 00
+        const patternNoCard = Buffer.from([0xD5, 0x4B, 0x00]);
+        const noCardIdx = buffer.indexOf(patternNoCard);
+
+        if (noCardIdx !== -1) {
+          // PN532 telah menyelesaikan 1 siklus pencarian tanpa kartu.
+          // Langsung mulai siklus pencarian berikutnya setelah jeda kecil 50ms.
+          buffer = Buffer.alloc(0);
+          if (watchdogTimer) clearTimeout(watchdogTimer);
+          scheduleNextRead(50);
+          return;
+        }
+      });
+
+      port.on('error', (err: any) => {
+        isOpeningPort = false;
+        globalForSerial.hardwareStatus = 'Serial Error';
         globalForSerial.hardwareError = err.message;
-        globalForSerial.serialPortInitialized = false; // Reset agar bisa retry
+        globalForSerial.serialPortInitialized = false;
+        if (readTimer) clearTimeout(readTimer);
+        if (watchdogTimer) clearTimeout(watchdogTimer);
+      });
+
+      port.on('close', () => {
+        isOpeningPort = false;
+        globalForSerial.hardwareStatus = 'Disconnected';
+        globalForSerial.hardwareError = 'Kabel tercabut atau port tertutup';
+        globalForSerial.serialPortInitialized = false;
+        globalForSerial.activePort = null;
+        if (readTimer) clearTimeout(readTimer);
+        if (watchdogTimer) clearTimeout(watchdogTimer);
+      });
+    };
+
+    if (globalForSerial.activePort) {
+      if (globalForSerial.activePort.isOpen) {
+        globalForSerial.activePort.close(() => {
+          setTimeout(openConnection, 400);
+        });
         return;
       }
-      console.log(`✅ SerialPort connected on ${comPort} (Mode: RAW UART PN532)`);
-      globalForSerial.hardwareStatus = 'Port Connected, Waking PN532...';
-
-      // 1. Wake Up PN532 & Get Firmware Version
-      const wakeup = Buffer.from([
-        0x55, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0xFF, 0x03, 0xFD, 0xD4, 0x14, 0x01, 0x17, 0x00
-      ]);
-      port.write(wakeup);
-
-      setTimeout(() => {
-        globalForSerial.hardwareStatus = 'Ready';
-        globalForSerial.hardwareError = null;
-        console.log('✅ PN532 is Ready! Starting single read command...');
-        
-        // Polling Command: InListPassiveTarget (Baca Kartu)
-        const readCmd = Buffer.from([
-          0x00, 0x00, 0xFF, 0x04, 0xFC, 0xD4, 0x4A, 0x01, 0x00, 0xE1, 0x00
-        ]);
-
-        const sendReadCommand = () => {
-          if (port.isOpen) {
-            port.write(readCmd);
-          }
-        };
-
-        // Simpan fungsi ke global agar bisa dipanggil ulang setelah kartu terbaca
-        (globalForSerial as any).sendReadCommand = sendReadCommand;
-
-        // Kirim perintah baca HANYA SEKALI. Modul akan menunggu sampai kartu didekatkan.
-        sendReadCommand();
-      }, 1000);
-    });
-
-    let buffer = Buffer.alloc(0);
-    let lastReadTime = 0;
-
-    port.on('data', (data: Buffer) => {
-      buffer = Buffer.concat([buffer, data]);
-      
-      // Batasi ukuran buffer agar tidak bocor memorinya
-      if (buffer.length > 1024) {
-        buffer = buffer.slice(buffer.length - 1024);
-      }
-
-      // Cari pola jawaban InListPassiveTarget: D5 4B 01 01 (Sukses baca 1 kartu)
-      const pattern = Buffer.from([0xD5, 0x4B, 0x01, 0x01]);
-      const idx = buffer.indexOf(pattern);
-
-      if (idx !== -1 && buffer.length >= idx + 9) {
-        // Kartu terdeteksi!
-        const uidLength = buffer[idx + 7];
-        
-        if (buffer.length >= idx + 8 + uidLength) {
-          const uidBuf = buffer.slice(idx + 8, idx + 8 + uidLength);
-          const uidHex = uidBuf.toString('hex').toUpperCase();
-          
-          // Bersihkan buffer agar tidak terbaca berulang
-          buffer = Buffer.alloc(0);
-
-          // Beri jeda (debounce) sebelum baca kartu
-          const now = Date.now();
-          if (now - lastReadTime > 5000) { // Jeda 5 detik antar scan
-            lastReadTime = now;
-            console.log(`[RAW PN532 Scan] Kartu Ditemukan! UID: ${uidHex}`);
-            processScan(uidHex);
-          }
-          
-          // Setelah membaca, PN532 akan keluar dari mode pencarian. 
-          // Jeda agak lama (3 detik) sebelum scanner aktif lagi untuk mencegah penumpukan
-          setTimeout(() => {
-            if ((globalForSerial as any).sendReadCommand) {
-              (globalForSerial as any).sendReadCommand();
-            }
-          }, 3000);
-        }
-      }
-    });
-
-    port.on('error', (err: any) => {
-      globalForSerial.hardwareStatus = 'Serial Error';
-      globalForSerial.hardwareError = err.message;
-      globalForSerial.serialPortInitialized = false; // Reset agar bisa retry
-    });
-
-    port.on('close', () => {
-      globalForSerial.hardwareStatus = 'Disconnected';
-      globalForSerial.hardwareError = 'Kabel tercabut atau port tertutup';
-      globalForSerial.serialPortInitialized = false; // Reset agar bisa retry
-    });
+    }
+    
+    openConnection();
 
   } catch (error: any) {
+    isOpeningPort = false;
     console.warn('⚠️ Failed to initialize RAW PN532:', error);
     globalForSerial.hardwareStatus = 'Initialization Failed';
     globalForSerial.hardwareError = String(error);
-    globalForSerial.serialPortInitialized = false; // Reset agar bisa retry
+    globalForSerial.serialPortInitialized = false;
   }
 }
 
